@@ -13,6 +13,8 @@ const TARGET_MAP = {
   'request.geoip': 'geoipString', 'request.geo': 'geoipString',
   'request.fingerprint': 'fingerprintString', 'request.fp': 'fingerprintString',
   'request.rate': 'rateString',
+  'request.content_type': 'contentType', 'request.hostname': 'hostname',
+  'request.protocol': 'protocol',
 };
 
 function prepareMatchData(d) {
@@ -26,6 +28,9 @@ function prepareMatchData(d) {
     geoipString: '',
     fingerprintString: '',
     rateString: '',
+    contentType: (d.headers && (d.headers['content-type'] || d.headers['Content-Type'])) || '',
+    hostname: (d.headers && (d.headers['host'] || d.headers['Host'])) || '',
+    protocol: d.protocol || 'http',
   };
   if (d.query && typeof d.query === 'object') data.queryString = Object.entries(d.query).map(([k, v]) => `${k}=${v}`).join('&');
   if (d.headers && typeof d.headers === 'object') data.headerString = Object.entries(d.headers).map(([k, v]) => `${k}: ${v}`).join('\n');

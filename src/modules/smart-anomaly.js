@@ -226,6 +226,11 @@ class SmartAnomalyDetector {
       add(5, 'path_traversal', 'Directory traversal patterns');
     }
 
+    const nestingLevel = (rawFields.match(/[\{\[]/g) || []).length;
+    if (nestingLevel > 15) {
+      add(4, 'excessive_nesting', `High data structure nesting (${nestingLevel} levels)`);
+    }
+
     return { score, indicators };
   }
 
@@ -385,6 +390,11 @@ class SmartAnomalyDetector {
       signals.push({ type: 'encoded_payload', weight: 6, detail: 'High entropy with deep encoding' });
     }
 
+    const blindPatterns = /(sleep\s*\(|pg_sleep\s*\(|waitfor\s+delay|benchmark\s*\()/i;
+    if (blindPatterns.test(all)) {
+      signals.push({ type: 'blind_sqli_indicators', weight: 8, detail: 'Time-based blind attack functions detected (sleep/waitfor/benchmark)'});
+    }
+
     return signals;
   }
 
@@ -464,6 +474,7 @@ class SmartAnomalyDetector {
       severity: result.severity,
       category: topCategories[0]?.split('(')[0] || 'unknown',
       description: `Score ${result.score.toFixed(1)} (${result.severity}) | signals: ${topSignals.join(', ')}`,
+      author: 'laraxaar',
       score: result.score,
       confidence,
       explanation: {

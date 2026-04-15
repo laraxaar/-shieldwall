@@ -1,0 +1,41 @@
+rule char_obfuscation : evasion {
+    meta:
+        author = "ShieldWall"
+        description = "Detects SQL/Code execution payload obfuscation using CHAR/CHR functions concatenated together"
+        severity = "high"
+        category = "evasion"
+
+    target:
+        $url = request.url
+        $body = request.body
+
+    strings:
+        // Matches chr(115)||chr(101) or char(115)+char(101)
+        $char_concat = /(chr|char)\(\s*\d+\s*\)\s*(\|\||\+|CONCAT)\s*(chr|char)\(\s*\d+\s*\)/i
+
+    condition:
+        $char_concat in $url or 
+        $char_concat in $body
+}
+
+rule hex_obfuscation : evasion {
+    meta:
+        author = "ShieldWall"
+        description = "Detects obfuscation via excessive Hex encoding or deep URL encoding"
+        severity = "high"
+        category = "evasion"
+
+    target:
+        $url = request.raw_url
+        $body = request.body
+
+    strings:
+        // Matches %252527 (triple url encode) or hex strings 0x73656c65
+        $deep_url = /(%25){2,}[0-9a-f]{2}/i
+        $hex_sql = /0x[0-9a-f]{10,}/i
+
+    condition:
+        $deep_url in $url or 
+        $hex_sql in $url or
+        $hex_sql in $body
+}

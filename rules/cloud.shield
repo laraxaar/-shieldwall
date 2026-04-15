@@ -1,0 +1,70 @@
+rule aws_metadata_ssrf : ssrf {
+    meta:
+        author = "laraxaar"
+        description = "Detects attempts to access AWS IMDSv1/v2 metadata via SSRF"
+        severity = "critical"
+        category = "ssrf"
+
+    target:
+        $url = request.url
+        $body = request.body
+
+    strings:
+        $ip = "169.254.169.254"
+        $path = "latest/meta-data"
+        $token_header = "X-aws-ec2-metadata-token-ttl-seconds" nocase
+
+    condition:
+        ($ip in $url and $path in $url) or
+        ($ip in $body and $path in $body) or
+        $token_header in $url or 
+        $token_header in $body
+}
+
+rule gcp_metadata_ssrf : ssrf {
+    meta:
+        author = "laraxaar"
+        description = "Detects attempts to access GCP metadata via SSRF Header Injection"
+        severity = "critical"
+        category = "ssrf"
+
+    target:
+        $url = request.url
+        $body = request.body
+        $headers = request.headers
+
+    strings:
+        $ip = "169.254.169.254"
+        $gcp_host = "metadata.google.internal"
+        $header_flavor = "Metadata-Flavor: Google" nocase
+
+    condition:
+        ($ip in $url or $gcp_host in $url) or
+        ($ip in $body or $gcp_host in $body) or
+        $header_flavor in $url or 
+        $header_flavor in $body or
+        $header_flavor in $headers
+}
+
+rule azure_metadata_ssrf : ssrf {
+    meta:
+        author = "laraxaar"
+        description = "Detects attempts to access Azure metadata via SSRF"
+        severity = "critical"
+        category = "ssrf"
+
+    target:
+        $url = request.url
+        $body = request.body
+        $headers = request.headers
+
+    strings:
+        $ip = "169.254.169.254"
+        $header_azure = "Metadata: true" nocase
+        $azure_path = "metadata/instance"
+
+    condition:
+        (($ip in $url or $azure_path in $url) and $header_azure in $url) or
+        (($ip in $body or $azure_path in $body) and $header_azure in $body) or
+        $header_azure in $headers
+}

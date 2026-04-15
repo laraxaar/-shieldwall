@@ -27,6 +27,9 @@ const WEIGHTS = {
   nakedRequest: 3,
   headerIntegrity: 2,
   emptyBody: 2,
+  paddingEvasion: 4,
+  fragmentedWords: 5,
+  executablePayload: 6,
 };
 
 function charClassRatio(str, regex) {
@@ -216,6 +219,27 @@ function detectEmptyBody(headers, body) {
   return false;
 }
 
+// Detect padding evasion (e.g. SELECT       *       FROM)
+function detectPaddingEvasion(str) {
+  if (!str) return false;
+  return /\b(select|union|from|where|insert|delete|update|drop)\s{5,}/i.test(str);
+}
+
+// Detect fragmented keywords (e.g. 's'+'e'+'l'+'e' or concat('u','n','i'))
+function detectFragmentedWords(str) {
+  if (!str) return false;
+  const concatSyntax = /(['"]\w['"]\s*(\+|\|\|)\s*){3,}/i;
+  const sqlConcat = /concat\(\s*['"]\w['"]\s*(,\s*['"]\w['"]\s*){3,}\)/i;
+  const inlineChr = /(chr|char)\(\d{2,3}\)\s*(\|\||\+)\s*(chr|char)\(/i;
+  return concatSyntax.test(str) || sqlConcat.test(str) || inlineChr.test(str);
+}
+
+// Detect Base64 encoded executable headers (Windows PE MZ, Linux ELF)
+function detectExecutablePayload(str) {
+  if (!str) return false;
+  return /(TVqQ(A|I|w|Q)[A-Za-z0-9+/=]{10,}|f0VMR[A-Za-z0-9+/=]{10,})/.test(str);
+}
+
 function analyze(decodedReq) {
   const factors = [];
   let score = 0;
@@ -248,6 +272,10 @@ function analyze(decodedReq) {
   for (const val of Object.values(decodedReq.query || {})) {
     if (val && val.length > 500) { add(WEIGHTS.longParameter, 'oversized_param', `${val.length} char parameter`); break; }
   }
+
+  if (detectPaddingEvasion(allValues)) add(WEIGHTS.paddingEvasion, 'padding_evasion', 'Suspicious whitespace padding evasion');
+  if (detectFragmentedWords(allValues)) add(WEIGHTS.fragmentedWords, 'fragmented_words', 'String concatenation / character evasion');
+  if (detectExecutablePayload(allValues)) add(WEIGHTS.executablePayload, 'executable_payload', 'Base64 executable header (PE/ELF) detected');
 
   const repRatio = repeatingRatio(allValues);
   if (repRatio > 0.15) add(WEIGHTS.repeatingPatterns, 'repeating_patterns', `${(repRatio * 100).toFixed(0)}% repetitive content`);
