@@ -1,0 +1,22 @@
+rule cmdi_attempt : cmdi {
+    meta:
+        author      = "ShieldWall"
+        description = "OS command injection — shell metacharacter + command name"
+        severity    = "critical"
+
+    target:
+        $url   = request.url
+        $body  = request.body
+        $query = request.query
+
+    strings:
+        $chain_cmd    = /[;|&]{1,2}\s*(ls|cat|id|whoami|uname|pwd|wget|curl|nc|ncat|bash|sh|python[23]?|perl|ruby|php|node|base64|chmod|chown|rm|mv|cp|mkdir|echo)\b/i
+        $subst        = /(`[^`]+`|\$\([^)]+\))/
+        $reverse_shell = /(bash\s+-i|\/dev\/(tcp|udp)\/|mkfifo\s+|socat\s+.*exec)/i
+        $win_exec     = /\b(cmd\s*\/[ck]|powershell\s+|certutil\s+|bitsadmin\s+|mshta\s+|regsvr32\s+)/i
+        $download_exec = /(wget|curl)\s+[^\s]+\s*\|\s*(bash|sh)/i
+
+    condition:
+        ($chain_cmd in $url or $chain_cmd in $body or $chain_cmd in $query)
+        or $subst or $reverse_shell or $win_exec or $download_exec
+}

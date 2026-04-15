@@ -1,0 +1,26 @@
+rule injection_attempt : injection {
+    meta:
+        author      = "ShieldWall"
+        description = "Structural injection patterns — context breaks + keywords, DB-agnostic"
+        severity    = "critical"
+
+    target:
+        $url   = request.url
+        $body  = request.body
+        $query = request.query
+
+    strings:
+        $context_break   = /['"`]\s*(or|and|union|select|having|group\s+by|order\s+by)\b/i
+        $stacked         = /;\s*(drop|delete|update|insert|alter|create|truncate|exec)\b/i
+        $time_probe      = /(sleep|benchmark|waitfor\s+delay|pg_sleep)\s*\(/i
+        $info_recon      = /(information_schema|sys\.(tables|columns)|@@version|version\(\))/i
+        $file_ops        = /(load_file|into\s+(out|dump)file|load\s+data\s+infile)/i
+        $nosql_operator  = /\$\s*(where|gt|gte|lt|lte|ne|eq|regex|exists|in|nin)\s*:/i
+        $comment_trail   = /['"`]\s*(--|#|\/\*)/i
+
+    condition:
+        ($context_break in $url or $context_break in $body or $context_break in $query)
+        or ($stacked in $url or $stacked in $body)
+        or $time_probe or $info_recon or $file_ops
+        or $nosql_operator or $comment_trail
+}

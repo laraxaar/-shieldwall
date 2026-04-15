@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShieldWall — WAF Dashboard</title>
+  <link rel="stylesheet" href="dashboard.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header__brand">
+        <div class="header__logo">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <path d="M16 2L4 8v8c0 7.73 5.12 14.96 12 16.8 6.88-1.84 12-9.07 12-16.8V8L16 2z" fill="url(#shield-grad)" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+            <path d="M16 6l-8 4v6c0 5.5 3.5 10.7 8 12 4.5-1.3 8-6.5 8-12v-6l-8-4z" fill="rgba(0,0,0,0.3)"/>
+            <path d="M14 16l-2-2-1.5 1.5L14 19l6-6-1.5-1.5L14 16z" fill="white"/>
+            <defs>
+              <linearGradient id="shield-grad" x1="4" y1="2" x2="28" y2="26.8">
+                <stop stop-color="#6366f1"/>
+                <stop offset="1" stop-color="#8b5cf6"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="header__text">
+          <h1>ShieldWall</h1>
+          <span class="header__version">WAF Dashboard v1.0</span>
+        </div>
+      </div>
+      <div class="header__status">
+        <div class="status-indicator" id="status-indicator">
+          <span class="status-dot"></span>
+          <span id="status-text">Connecting...</span>
+        </div>
+        <div class="header__uptime" id="uptime">--:--:--</div>
+      </div>
+    </header>
+
+    <!-- Stats Cards -->
+    <section class="stats-grid">
+      <div class="stat-card stat-card--total">
+        <div class="stat-card__icon">📊</div>
+        <div class="stat-card__content">
+          <div class="stat-card__value" id="stat-total">0</div>
+          <div class="stat-card__label">Total Requests</div>
+        </div>
+      </div>
+      <div class="stat-card stat-card--blocked">
+        <div class="stat-card__icon">🛡️</div>
+        <div class="stat-card__content">
+          <div class="stat-card__value" id="stat-blocked">0</div>
+          <div class="stat-card__label">Blocked</div>
+        </div>
+      </div>
+      <div class="stat-card stat-card--threats">
+        <div class="stat-card__icon">⚠️</div>
+        <div class="stat-card__content">
+          <div class="stat-card__value" id="stat-threats">0</div>
+          <div class="stat-card__label">Threats Detected</div>
+        </div>
+      </div>
+      <div class="stat-card stat-card--rules">
+        <div class="stat-card__icon">📋</div>
+        <div class="stat-card__content">
+          <div class="stat-card__value" id="stat-rules">0</div>
+          <div class="stat-card__label">Active Rules</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Content -->
+    <div class="main-grid">
+      <!-- Live Feed -->
+      <section class="panel panel--feed">
+        <div class="panel__header">
+          <h2>🔴 Live Attack Feed</h2>
+          <button class="btn btn--sm" id="clear-feed">Clear</button>
+        </div>
+        <div class="feed-list" id="feed-list">
+          <div class="feed-empty">Waiting for events...</div>
+        </div>
+      </section>
+
+      <!-- Right Sidebar -->
+      <aside class="sidebar">
+        <!-- Severity Breakdown -->
+        <section class="panel panel--severity">
+          <div class="panel__header">
+            <h2>Severity Breakdown</h2>
+          </div>
+          <div class="severity-bars">
+            <div class="severity-bar">
+              <div class="severity-bar__label">
+                <span class="severity-dot severity-dot--critical"></span>Critical
+              </div>
+              <div class="severity-bar__track">
+                <div class="severity-bar__fill severity-bar__fill--critical" id="sev-critical" style="width:0%"></div>
+              </div>
+              <span class="severity-bar__count" id="sev-critical-count">0</span>
+            </div>
+            <div class="severity-bar">
+              <div class="severity-bar__label">
+                <span class="severity-dot severity-dot--high"></span>High
+              </div>
+              <div class="severity-bar__track">
+                <div class="severity-bar__fill severity-bar__fill--high" id="sev-high" style="width:0%"></div>
+              </div>
+              <span class="severity-bar__count" id="sev-high-count">0</span>
+            </div>
+            <div class="severity-bar">
+              <div class="severity-bar__label">
+                <span class="severity-dot severity-dot--medium"></span>Medium
+              </div>
+              <div class="severity-bar__track">
+                <div class="severity-bar__fill severity-bar__fill--medium" id="sev-medium" style="width:0%"></div>
+              </div>
+              <span class="severity-bar__count" id="sev-medium-count">0</span>
+            </div>
+            <div class="severity-bar">
+              <div class="severity-bar__label">
+                <span class="severity-dot severity-dot--low"></span>Low
+              </div>
+              <div class="severity-bar__track">
+                <div class="severity-bar__fill severity-bar__fill--low" id="sev-low" style="width:0%"></div>
+              </div>
+              <span class="severity-bar__count" id="sev-low-count">0</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Top Attack Types -->
+        <section class="panel panel--categories">
+          <div class="panel__header">
+            <h2>Top Attack Types</h2>
+          </div>
+          <div class="category-list" id="category-list">
+            <div class="feed-empty">No data yet</div>
+          </div>
+        </section>
+
+        <!-- Top IPs -->
+        <section class="panel panel--ips">
+          <div class="panel__header">
+            <h2>Top Attacker IPs</h2>
+          </div>
+          <div class="ip-list" id="ip-list">
+            <div class="feed-empty">No data yet</div>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>

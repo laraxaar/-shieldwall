@@ -1,0 +1,29 @@
+rule protocol_abuse : protocol {
+    meta:
+        author      = "ShieldWall"
+        description = "HTTP smuggling, SSRF, CRLF injection, host header attacks"
+        severity    = "critical"
+
+    target:
+        $url     = request.url
+        $headers = request.headers
+        $query   = request.query
+        $body    = request.body
+
+    strings:
+        $smuggle_cl_te  = /content-length.*transfer-encoding|transfer-encoding.*content-length/i
+        $smuggle_chunk  = /transfer-encoding:\s*(cow|identity|x-|chunked.*chunked)/i
+        $ssrf_internal  = /(localhost|127\.0\.0\.1|0\.0\.0\.0|::1|0x7f000001|169\.254\.169\.254)/i
+        $ssrf_private   = /(10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)/i
+        $ssrf_cloud     = /(metadata\.google|metadata\.azure|100\.100\.100\.200)/i
+        $ssrf_proto     = /(file|gopher|dict):\/\//i
+        $crlf           = /%0[da]%0[da]/i
+        $host_inject    = /host:.*[<>'";\(\)]/i
+
+    condition:
+        ($smuggle_cl_te in $headers or $smuggle_chunk in $headers)
+        or ($ssrf_internal in $url or $ssrf_internal in $body or $ssrf_internal in $query)
+        or $ssrf_cloud or $ssrf_proto
+        or ($crlf in $url or $crlf in $query)
+        or $host_inject
+}

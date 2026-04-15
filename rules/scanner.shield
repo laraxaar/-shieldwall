@@ -1,0 +1,17 @@
+rule known_scanner : scanner {
+    meta:
+        author      = "ShieldWall"
+        description = "Known offensive security tool fingerprints"
+        severity    = "high"
+
+    target:
+        $ua      = request.useragent
+        $headers = request.headers
+
+    strings:
+        $tool_ua  = /\b(sqlmap|nikto|nuclei|gobuster|feroxbuster|dirbuster|dirb|wfuzz|ffuf|masscan|zgrab|nmap|burp|arachni|w3af|acunetix|nessus|openvas|zap|whatweb)\b/i
+        $oob_domain = /(burpcollaborator\.net|oastify\.com|interact\.sh|oast\.(fun|pro|live|me)|canarytokens\.com|dnslog\.(cn|link))/i
+
+    condition:
+        $tool_ua in $ua or $oob_domain
+}

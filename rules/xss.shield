@@ -1,0 +1,24 @@
+rule xss_attempt : xss {
+    meta:
+        author      = "ShieldWall"
+        description = "Structural patterns required for script execution in HTML context"
+        severity    = "critical"
+
+    target:
+        $url   = request.url
+        $body  = request.body
+        $query = request.query
+
+    strings:
+        $tag_exec        = /<\s*(script|iframe|object|embed|applet|base|form|svg|math)[\s>\/]/i
+        $event_handler   = /\bon(error|load|click|mouse\w+|focus|blur|submit|key\w+|touch\w+|animate\w*|begin)\s*=/i
+        $proto_exec      = /(javascript|vbscript|data\s*:\s*text\/html)\s*:/i
+        $dom_sink        = /document\s*\.\s*(cookie|location|write|domain)|\.innerHTML\s*=/i
+        $dangerous_call  = /\b(eval|Function|setTimeout|setInterval)\s*\(\s*['"`\w$]/i
+        $template_inject = /\{\{.*constructor\.|__proto__|\$eval/i
+
+    condition:
+        ($tag_exec in $url or $tag_exec in $body or $tag_exec in $query)
+        or ($event_handler in $url or $event_handler in $body)
+        or $proto_exec or $dom_sink or $dangerous_call or $template_inject
+}

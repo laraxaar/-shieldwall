@@ -1,0 +1,46 @@
+rule traversal_attempt : traversal {
+    meta:
+        author      = "ShieldWall"
+        description = "Directory traversal, LFI, RFI — matched on decoded request"
+        severity    = "critical"
+
+    target:
+        $url   = request.url
+        $body  = request.body
+        $query = request.query
+
+    strings:
+        $dotdot          = /\.\.[\/\\]/
+        $sensitive_nix   = /\/(etc\/(passwd|shadow|hosts)|proc\/(self|[0-9]+)\/(environ|cmdline|fd|maps))/i
+        $sensitive_win   = /(boot\.ini|windows[\/\\](system32|win\.ini|repair[\/\\]sam))/i
+        $sensitive_app   = /(\.(env|git\/|svn\/|htpasswd|htaccess|ssh\/))/i
+        $rfi_proto       = /(include|require|file|page|path|template)\s*=\s*(https?|ftp|data|php):\/\//i
+        $php_wrapper     = /php:\/\/(filter|input|data|expect|zip)/i
+        $null_byte       = /%00\.(php|jsp|asp|html|txt)/i
+
+    condition:
+        ($dotdot in $url or $dotdot in $body or $dotdot in $query)
+        or $sensitive_nix or $sensitive_win or $sensitive_app
+        or $rfi_proto or $php_wrapper or $null_byte
+}
+
+// fires when attacker obfuscates traversal via multi-layer encoding
+rule encoding_evasion : evasion {
+    meta:
+        author      = "ShieldWall"
+        description = "Multi-layer encoding evasion (double-encode, overlong UTF-8, unicode)"
+        severity    = "high"
+
+    target:
+        $url = request.raw_url
+
+    strings:
+        $double_encode   = /%25(2e|2f|5c|3c|3e|27|22)/i
+        $overlong_utf8   = /%c0%ae|%c1%9c|%c0%af/i
+        $unicode_dot     = /%u002e|%u2215|%u2216/i
+        $excessive_slash = /\/{3,}|\\\/{2,}|\\{3,}/
+
+    condition:
+        $double_encode in $url or $overlong_utf8 in $url
+        or $unicode_dot in $url or $excessive_slash in $url
+}
