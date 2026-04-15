@@ -1,0 +1,60 @@
+rule dangerous_upload : upload {
+    meta:
+        author      = "laraxaar"
+        description = "Dangerous file upload patterns and bypass attempts"
+        severity    = "critical"
+
+    target:
+        $body = request.body
+        $headers = request.headers
+        $query = request.query
+
+    strings:
+        $double_ext = /filename=.*\.(jpg|jpeg|png|gif|pdf|doc|docx)\.(php|jsp|asp|aspx|exe|sh|bat|cmd|ps1)/i
+        $php_in_image = /filename=.*\.(jpg|jpeg|png|gif).*\.php/i
+        $null_byte = /filename=.*\.php%00\./i
+        $magic_override = /GIF89a.*<\?php|PNG\r\n\x1a\n.*<\?php/i
+        $htaccess_upload = /filename.*\.htaccess/i
+        $svg_xss = /<svg.*onload\s*=|xmlns.*xlink.*script/i
+        $exe_masquerade = /filename=.*\.(exe|dll|scr|bat)\.(pdf|doc|jpg)/i
+
+    condition:
+        $double_ext or $php_in_image or $null_byte or $magic_override 
+        or $htaccess_upload or $svg_xss or $exe_masquerade
+}
+
+rule upload_evasion : upload {
+    meta:
+        author      = "laraxaar"
+        description = "File upload extension evasion techniques"
+        severity    = "high"
+
+    target:
+        $body = request.body
+
+    strings:
+        $case_bypass = /filename=.*\.\p{Lu}+\.(php|jsp|asp|exe)/iu
+        $alternate_ext = /\.(phtml|php[3-5]|phar|phps|jspx|jspa)/i  // Alternative PHP/JSP executables
+        $reverse_ext = /filename=.*(php|jsp|asp)\.[^.]+\./i
+        $path_traversal = /filename=.*[\\\/]\.\.[\\\/]/i
+        $stream_wrapper = /(php|data|expect|input|filter):\/\//i
+
+    condition:
+        $case_bypass or $alternate_ext or $reverse_ext or $path_traversal or $stream_wrapper
+}
+
+rule oversized_upload : upload {
+    meta:
+        author      = "laraxaar"
+        description = "Suspiciously large file uploads"
+        severity    = "medium"
+
+    target:
+        $headers = request.headers
+
+    strings:
+        $huge_file = /content-length\s*:\s*(\d{9,}|[5-9]\d{8})/i  // >500MB
+
+    condition:
+        $huge_file
+}

@@ -1,6 +1,6 @@
 rule known_scanner : scanner {
     meta:
-        author      = "ShieldWall"
+        author      = "laraxaar"
         description = "Known offensive security tool fingerprints"
         severity    = "high"
 

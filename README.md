@@ -118,6 +118,11 @@ rule my_detection : tag {
 | `request.cookies` | Cookie values |
 | `request.useragent` | User-Agent string |
 | `request.raw_url` | URL before decoding (for evasion detection) |
+| `request.session` / `request.sessionid` | Session identifier |
+| `request.timestamp` / `request.time` | Request timestamp |
+| `request.geoip` / `request.geo` | GeoIP data (country, city, ASN) |
+| `request.fingerprint` / `request.fp` | Browser/device fingerprint |
+| `request.rate` | Rate limit counter data |
 
 ### Condition Operators
 
@@ -125,13 +130,35 @@ rule my_detection : tag {
 
 Rules can be loaded from files, directories, or inline strings — see examples.
 
+### Built-in Rule Files
+
+| File | Protection |
+|------|------------|
+| `sqli.shield` | SQL and NoSQL injection patterns |
+| `xss.shield` | Cross-site scripting attacks |
+| `traversal.shield` | Path traversal and LFI/RFI |
+| `cmdi.shield` | Command injection attacks |
+| `protocol.shield` | HTTP smuggling, SSRF, CRLF injection |
+| `scanner.shield` | Known security scanner detection |
+| `graphql.shield` | GraphQL query depth bombing and introspection |
+| `jwt.shield` | JWT algorithm confusion and key injection |
+| `deserialization.shield` | Java/PHP/Node.js/Python deserialization |
+| `cors.shield` | CORS misconfiguration abuse |
+| `file_upload.shield` | Dangerous file upload patterns |
+| `dos_protection.shield` | L7 DDoS - Slowloris, header swelling, parameter floods |
+| `api_security.shield` | IDOR/BOLA, mass assignment, anomalous Content-Type |
+| `proto_pollution.shield` | Node.js prototype pollution attacks |
+| `obfuscation_evasion.shield` | Double Base64, hex encoding, Unicode homoglyphs |
+| `business_logic.shield` | Form speed, cart manipulation, scraping patterns |
+| `security_misconfig.shield` | Debug endpoints, config files, backup access |
+
 ---
 
 ## Modules
 
 | Module | Approach |
 |--------|----------|
-| **Anomaly Scoring** | Behavioral heuristics — encoding layers, char density, nesting depth, mixed schemes |
+| **Anomaly Scoring** | Behavioral heuristics — encoding layers, char density, nesting depth, mixed schemes, entropy analysis, parameter pollution, raw byte injection, payload inflation, header integrity |
 | **Honeypot** | Invisible HTML traps, fake admin panels, fake APIs — flags anything that interacts |
 | **Injection** | Structural patterns (context breaks + keywords) — database-agnostic |
 | **XSS** | HTML execution shapes (tags, handlers, protocol, DOM sinks) |
@@ -142,6 +169,10 @@ Rules can be loaded from files, directories, or inline strings — see examples.
 | **Rate Limiter** | Sliding window per-IP with auto-blocking |
 | **Brute-Force Guard** | Progressive backoff on sensitive endpoints |
 | **Security Headers** | CSP, HSTS, Permissions-Policy, etc. (helmet.js alternative) |
+| **Bot Detection** | Headless browser detection, automation tools, behavioral analysis |
+| **Session Anomaly** | Geo-velocity checks, device fingerprint changes, impossible travel detection |
+| **API Abuse** | GraphQL complexity analysis, REST enumeration, batch attack detection |
+| **DDoS Protection** | L7 flood detection - Slowloris, oversized headers, connection floods |
 
 ---
 
@@ -183,12 +214,17 @@ shieldwall({
   trustProxy: false,
   excludePaths: ['/health'],
   excludeIPs: ['127.0.0.1'],
-  modules: { anomaly: true, honeypot: true, sqli: true, xss: true, pathTraversal: true, commandInjection: true },
+  modules: { anomaly: true, honeypot: true, sqli: true, xss: true, pathTraversal: true, commandInjection: true, botDetection: true, sessionAnomaly: true, apiAbuse: true },
   rateLimit: { windowMs: 60000, max: 100 },
   bruteForce: { maxAttempts: 5, sensitivePaths: ['/login'] },
   dashboard: { port: 9090 },
   headers: { hsts: { maxAge: 31536000 } },
   honeypot: true,                   // inject HTML traps into responses
+  reporting: {
+    enabled: true,
+    reportsDir: './reports',
+    maxStoredReports: 12,
+  },
 });
 ```
 
@@ -203,9 +239,35 @@ waf.on('threat', (event) => {
   // send to Slack, Discord, webhook, SIEM...
 });
 
-waf.getStats();      // request/block/threat counters
-waf.reloadRules();   // hot-reload .shield files
+waf.on('report', ({ type, report, filepath }) => {
+  // type: '14d' | 'monthly'
+  // report — full report object with trends, ROI, persistent attackers
+  // filepath — path to saved JSON file
+});
+
+waf.getStats();              // request/block/threat counters
+waf.getReport(14);           // generate report for last 14 days
+waf.getStoredReports();      // get all stored reports
+waf.reloadRules();           // hot-reload .shield files
 ```
+
+### Automatic Reports
+
+ShieldWall generates reports automatically:
+
+- **Every 14 days** — summary report with key statistics
+- **Monthly** — detailed report with trends, ROI metrics, vector shift analysis, and persistent attacker tracking
+
+Reports are saved to `reports/` and include:
+- Attack summary by severity and category
+- Top attacked endpoints with protection recommendations
+- Attack dynamics (comparison with previous period)
+- New attack patterns detection
+- Geographic distribution
+- ROI metrics (traffic saved, CPU time saved, cost estimate)
+- Vector shift analysis (e.g., cmdi → api-abuse migration)
+- Persistent attacker identification (IP reconnaissance tracking)
+- SVG timeline charts
 
 ---
 

@@ -8,6 +8,11 @@ const TARGET_MAP = {
   'request.cookies': 'cookieString', 'request.method': 'method',
   'request.useragent': 'userAgent', 'request.user_agent': 'userAgent',
   'request.ip': 'ip', 'request.raw_url': 'rawUrl', 'request.raw_body': 'rawBody',
+  'request.session': 'sessionId', 'request.sessionid': 'sessionId',
+  'request.timestamp': 'timestamp', 'request.time': 'timestamp',
+  'request.geoip': 'geoipString', 'request.geo': 'geoipString',
+  'request.fingerprint': 'fingerprintString', 'request.fp': 'fingerprintString',
+  'request.rate': 'rateString',
 };
 
 function prepareMatchData(d) {
@@ -16,11 +21,19 @@ function prepareMatchData(d) {
     method: d.method || '', userAgent: d.userAgent || '', ip: d.ip || '',
     rawUrl: d.rawUrl || '', rawBody: d.rawBody || '',
     queryString: '', headerString: '', cookieString: '', full: '',
+    sessionId: d.sessionId || '',
+    timestamp: d.timestamp || Date.now(),
+    geoipString: '',
+    fingerprintString: '',
+    rateString: '',
   };
   if (d.query && typeof d.query === 'object') data.queryString = Object.entries(d.query).map(([k, v]) => `${k}=${v}`).join('&');
   if (d.headers && typeof d.headers === 'object') data.headerString = Object.entries(d.headers).map(([k, v]) => `${k}: ${v}`).join('\n');
   if (d.cookies && typeof d.cookies === 'object') data.cookieString = Object.entries(d.cookies).map(([k, v]) => `${k}=${v}`).join('; ');
-  data.full = [data.url, data.queryString, data.body, data.headerString, data.cookieString].join('\n');
+  if (d.geoip && typeof d.geoip === 'object') data.geoipString = Object.entries(d.geoip).map(([k, v]) => `${k}=${v}`).join(';');
+  if (d.fingerprint && typeof d.fingerprint === 'object') data.fingerprintString = Object.entries(d.fingerprint).map(([k, v]) => `${k}=${v}`).join(';');
+  if (d.rate && typeof d.rate === 'object') data.rateString = Object.entries(d.rate).map(([k, v]) => `${k}=${v}`).join(';');
+  data.full = [data.url, data.queryString, data.body, data.headerString, data.cookieString, data.geoipString, data.fingerprintString].join('\n');
   return data;
 }
 

@@ -1,0 +1,133 @@
+rule ssrf_localhost_access : ssrf {
+    meta:
+        author      = "laraxaar"
+        description = "SSRF attempt targeting localhost/loopback addresses"
+        severity    = "critical"
+
+    target:
+        $url   = request.url
+        $query = request.query
+        $body  = request.body
+
+    strings:
+        $localhost_name  = /(https?:\/\/|ftp:\/\/|file:\/\/|gopher:\/\/|dict:\/\/|ldap:\/\/|\/\/)(localhost|127\.0\.0\.1|0\.0\.0\.0|0000|0x7f\.0x0|0x7f000001)/i
+        $localhost_ip    = /(https?:\/\/|ftp:\/\/|file:\/\/|\/\/)(127\.\d{1,3}\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3})/i
+        $localhost_ipv6  = /(https?:\/\/|ftp:\/\/|file:\/\/|\/\/)(\[?::1\]?|\[?fc00::\]?|\[?fe80::\]?)/i
+        $localhost_oct  = /(https?:\/\/|ftp:\/\/|file:\/\/|\/\/)0{7,15}1/i
+        $localhost_hex   = /(https?:\/\/|ftp:\/\/|file:\/\/|\/\/)(0x7f|0177)\./i
+        $localhost_dword = /(https?:\/\/|ftp:\/\/|file:\/\/|\/\/)(2130706433|3232235521|3232235777|2886729728|3232240895)/i
+
+    condition:
+        $localhost_name or $localhost_ip or $localhost_ipv6 or $localhost_oct or $localhost_hex or $localhost_dword
+}
+
+rule ssrf_cloud_metadata : ssrf {
+    meta:
+        author      = "laraxaar"
+        description = "SSRF attempt targeting cloud metadata services (AWS, GCP, Azure, Alibaba)"
+        severity    = "critical"
+
+    target:
+        $url   = request.url
+        $query = request.query
+        $body  = request.body
+
+    strings:
+        $aws_metadata    = /(https?:\/\/|ftp:\/\/|file:\/\/|\/\/)(169\.254\.169\.254|169\.254\.170\.2)/i
+        $aws_imdsv2     = /(https?:\/\/|ftp:\/\/|file:\/\/|\/\/)(169\.254\.169\.254\/api\/token)/i
+        $gcp_metadata   = /(https?:\/\/|ftp:\/\/|file:\/\/|\/\/)(metadata\.google\.internal|169\.254\.169\.254\/computeMetadata)/i
+        $azure_metadata = /(https?:\/\/|ftp:\/\/|file:\/\/|\/\/)(169\.254\.169\.254\/metadata\/instance)/i
+        $alibaba_meta   = /(https?:\/\/|ftp:\/\/|file:\/\/|\/\/)(100\.100\.100\.200)/i
+        $oracle_meta    = /(https?:\/\/|ftp:\/\/|file:\/\/|\/\/)(192\.0\.0\.4|169\.254\.169\.254\/opc\/v\d)/i
+        $openstack_meta = /(https?:\/\/|ftp:\/\/|file:\/\/|\/\/)(169\.254\.169\.254\/openstack)/i
+
+    condition:
+        $aws_metadata or $aws_imdsv2 or $gcp_metadata or $azure_metadata or $alibaba_meta or $oracle_meta or $openstack_meta
+}
+
+rule ssrf_internal_network : ssrf {
+    meta:
+        author      = "laraxaar"
+        description = "SSRF attempt targeting internal network addresses"
+        severity    = "high"
+
+    target:
+        $url   = request.url
+        $query = request.query
+        $body  = request.body
+
+    strings:
+        $internal_cidr   = /(https?:\/\/|ftp:\/\/|file:\/\/|\/\/)(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})/i
+        $link_local      = /(https?:\/\/|ftp:\/\/|file:\/\/|\/\/)(169\.254\.\d{1,3}\.\d{1,3})/i
+        $carrier_nat     = /(https?:\/\/|ftp:\/\/|file:\/\/|\/\/)(100\.(6[4-9]|[7-9]\d|1[0-2]\d)\.\d{1,3}\.\d{1,3})/i
+        $internal_host   = /(https?:\/\/|ftp:\/\/|file:\/\/|\/\/)(internal|intranet|admin|mgmt|management|monitor|jenkins|gitlab|grafana|kibana|elasticsearch|redis|mongo|postgres|mysql|mariadb|rabbitmq|kafka)(:\d+)?\//i
+
+    condition:
+        $internal_cidr or $link_local or $carrier_nat or $internal_host
+}
+
+rule ssrf_protocol_manipulation : ssrf {
+    meta:
+        author      = "laraxaar"
+        description = "SSRF via protocol manipulation - file, ftp, gopher, dict protocols"
+        severity    = "high"
+
+    target:
+        $url   = request.url
+        $query = request.query
+        $body  = request.body
+
+    strings:
+        $file_protocol   = /(file:\/\/\/|file:\/\/\/etc\/|file:\/\/\/var\/|file:\/\/\/proc\/|file:\/\/\/sys\/)/i
+        $ftp_protocol    = /ftp:\/\/[^\/]*(anonymous|ftp|admin|root)/i
+        $gopher_protocol = /gopher:\/\//i
+        $dict_protocol   = /dict:\/\//i
+        $ldap_protocol   = /ldap:\/\//i
+        $sftp_protocol   = /sftp:\/\//i
+        $tftp_protocol   = /tftp:\/\//i
+
+    condition:
+        $file_protocol or $ftp_protocol or $gopher_protocol or $dict_protocol or $ldap_protocol or $sftp_protocol or $tftp_protocol
+}
+
+rule ssrf_dns_rebinding : ssrf {
+    meta:
+        author      = "laraxaar"
+        description = "SSRF via DNS rebinding - suspicious domain patterns for bypass"
+        severity    = "high"
+
+    target:
+        $url   = request.url
+        $query = request.query
+        $body  = request.body
+
+    strings:
+        $rebind_domain   = /(https?:\/\/)([a-z0-9\-]{10,50}\.127\.0\.0\.1|.*\.localhost\.|[0-9a-z\-]+\.(xip|nip)\.io|[0-9a-z\-]+\.sslip\.io)/i
+        $dns_bypass      = /(https?:\/\/)([0-9a-f]{8}\.rbndr\.us|.*\.oastify\.com|.*\.oast\.pro|.*\.burpcollaborator\.net|.*\.interact\.sh)/i
+        $cname_bypass    = /(https?:\/\/)(.*\.(awsdev|gcpdev|azuredev)\..*|.*\.(internal|local|corp|home|lan)\..*)/i
+
+    condition:
+        $rebind_domain or $dns_bypass or $cname_bypass
+}
+
+rule ssrf_url_parameter_manipulation : ssrf {
+    meta:
+        author      = "laraxaar"
+        description = "SSRF via URL parameter manipulation - @ bypass, unicode encoding, fragment tricks"
+        severity    = "medium"
+
+    target:
+        $url   = request.url
+        $query = request.query
+        $body  = request.body
+
+    strings:
+        $at_bypass       = /url=.*@127\.0\.0\.1|uri=.*@localhost|redirect=.*@0\.0\.0\.0/i
+        $hash_bypass     = /url=.*#.*127\.0\.0\.1|uri=.*#.*localhost/i
+        $unicode_bypass  = /url=.*%32%37%31|uri=.*%30%2e%30/i
+        $double_encode  = /url=.*%2531%2532%2537|uri=.*%2530%252e%2530/i
+        $path_trick     = /url=.*\/\/127\.0\.0\.1\/\?.*=.*http/i
+
+    condition:
+        $at_bypass or $hash_bypass or $unicode_bypass or $double_encode or $path_trick
+}

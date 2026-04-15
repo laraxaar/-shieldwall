@@ -7,3 +7,6 @@ Thumbs.db
 .idea/
 .vscode/
 dist/
+
+*.bak
+*.tmp

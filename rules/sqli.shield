@@ -1,6 +1,6 @@
 rule injection_attempt : injection {
     meta:
-        author      = "ShieldWall"
+        author      = "laraxaar"
         description = "Structural injection patterns — context breaks + keywords, DB-agnostic"
         severity    = "critical"
 

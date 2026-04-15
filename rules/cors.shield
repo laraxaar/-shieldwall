@@ -1,0 +1,40 @@
+rule cors_abuse : cors {
+    meta:
+        author      = "laraxaar"
+        description = "CORS misconfiguration and abuse attempts"
+        severity    = "high"
+
+    target:
+        $headers = request.headers
+
+    strings:
+        $null_origin = /origin\s*:\s*null/i
+        $wildcard_reflect = /access-control-allow-origin\s*:\s*\*/i
+        $reflected_origin = /origin\s*:\s*https?:\/\/evil\.|origin\s*:\s*https?:\/\/attacker\./i
+        $preflight_bypass = /access-control-request-method\s*:\s*(put|delete|patch)/i
+        $credentials_with_wildcard = /access-control-allow-credentials\s*:\s*true/i
+        $long_domain = /origin\s*:\s*https?:\/\/[^\/]{100,}/i
+
+    condition:
+        $null_origin or $reflected_origin or 
+        ($wildcard_reflect and $credentials_with_wildcard)
+}
+
+rule cors_preflight_attack : cors {
+    meta:
+        author      = "laraxaar"
+        description = "CORS preflight request abuse"
+        severity    = "medium"
+
+    target:
+        $headers = request.headers
+        $method = request.method
+
+    strings:
+        $suspicious_method = /access-control-request-method\s*:\s*(trace|connect|options)/i
+        $custom_header = /access-control-request-headers\s*:\s*(x-auth|authorization|cookie|session)/i
+        $many_headers = /access-control-request-headers\s*:\s*[^,]+,[^,]+,[^,]+,[^,]+,/i
+
+    condition:
+        $suspicious_method or $custom_header or $many_headers
+}

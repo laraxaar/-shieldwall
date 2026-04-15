@@ -1,0 +1,39 @@
+rule prototype_pollution_nodejs : injection {
+    meta:
+        author      = "laraxaar"
+        description = "Prototype pollution attempt in Node.js - __proto__, constructor, prototype injection"
+        severity    = "critical"
+
+    target:
+        $body  = request.body
+        $query = request.query
+        $url   = request.url
+
+    strings:
+        $proto_key = /["']?__proto__["']?\s*[:\[\]]/i
+        $constructor_key = /["']?constructor["']?\s*[:\[\]]/i
+        $prototype_key = /["']?prototype["']?\s*[:\[\]]/i
+        $pollution_payload = /\{\s*["']?__proto__["']?\s*:/i
+        $pollution_array = /\[\s*["']?__proto__["']?\s*\]/i
+
+    condition:
+        $proto_key or $constructor_key or $prototype_key or $pollution_payload or $pollution_array
+}
+
+rule prototype_chain_manipulation : injection {
+    meta:
+        author      = "laraxaar"
+        description = "Attempt to manipulate object prototype chain"
+        severity    = "critical"
+
+    target:
+        $body = request.body
+
+    strings:
+        $merge_proto = /Object\.assign.*__proto__/i
+        $spread_proto = /\.\.\..*__proto__/i
+        $json_parse_pollution = /JSON\.parse.*__proto__/i
+
+    condition:
+        $merge_proto or $spread_proto or $json_parse_pollution
+}

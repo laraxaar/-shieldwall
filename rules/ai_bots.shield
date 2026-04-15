@@ -1,0 +1,70 @@
+rule ai_scraper_detection : bot {
+    meta:
+        author      = "laraxaar"
+        description = "Detects AI/LLM crawlers (OpenAI, CommonCrawl, etc.)"
+        severity    = "medium"
+
+    target:
+        $ua = request.useragent
+
+    strings:
+        $ai_bots = /\b(GPTBot|ChatGPT-User|Google-Extended|CCBot|anthropic-ai|Claude-Web|PerplexityBot|Amazonbot|FacebookBot|OAI-SearchBot|OAI-ImageBot|AI2Bot|Bytespider|Diffbot|YouBot|ImagesiftBot|DataForSeoBot|ChatGPT|Anthropic-Claude|ClaudeBot|GoogleOther|GoogleOther-Image|GoogleOther-Video|Google-InspectionTool|AdsBot-Google-Mobile|Mediapartners-Google|Storebot-Google)\b/i
+
+    condition:
+        $ai_bots
+}
+
+rule aggressive_ai_crawler : bot {
+    meta:
+        author      = "laraxaar"
+        description = "High-frequency AI crawler patterns"
+        severity    = "high"
+
+    target:
+        $ua = request.useragent
+        $rate = request.rate
+
+    strings:
+        $ai_ua = /\b(GPTBot|CCBot|Bytespider|Anthropic)\b/i
+
+    condition:
+        $ai_ua and $rate
+}
+
+rule ai_content_theft : bot {
+    meta:
+        author      = "laraxaar"
+        description = "AI training data scraping patterns"
+        severity    = "medium"
+
+    target:
+        $ua = request.useragent
+        $url = request.url
+
+    strings:
+        $ai_ua = /\b(GPTBot|Claude|Anthropic|OpenAI|CommonCrawl)\b/i
+        $content_endpoints = /\.(pdf|doc|docx|txt|md|rst|epub|jsonl|csv)(\?|$)/i
+        $article_pattern = /\/(blog|article|post|news|content|docs)\//i
+
+    condition:
+        $ai_ua and ($content_endpoints or $article_pattern)
+}
+
+rule unauthorized_ai_training : bot {
+    meta:
+        author      = "laraxaar"
+        description = "AI bot hitting disallowed content areas"
+        severity    = "high"
+
+    target:
+        $ua = request.useragent
+        $url = request.url
+
+    strings:
+        $ai_ua = /\b(GPTBot|CCBot|anthropic-ai|ClaudeBot|OpenAI)\b/i
+        $private_paths = /\/(admin|api|internal|private|user|account|settings|dashboard)/i
+        $paywall_content = /\/(premium|subscriber|paid|members)/i
+
+    condition:
+        $ai_ua and ($private_paths or $paywall_content)
+}

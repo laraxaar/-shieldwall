@@ -12,6 +12,7 @@ const ShieldWallEngine = require('./core/engine');
 const { parseRules, parseRuleFile, loadRulesFromDir } = require('./core/rule-parser');
 const { decodeRequest, fullDecode } = require('./core/decoder');
 const Logger = require('./core/logger');
+const ReportingEngine = require('./core/reporting');
 
 function shieldwall(options = {}) {
   const engine = new ShieldWallEngine(options);
@@ -103,6 +104,8 @@ function shieldwall(options = {}) {
   middleware.getStats = () => engine.getStats();
   middleware.reloadRules = () => engine.reloadRules();
   middleware.on = (event, cb) => engine.on(event, cb);
+  middleware.getReport = (days) => engine.getReport(days);
+  middleware.getStoredReports = () => engine.getStoredReports();
 
   return middleware;
 }
@@ -116,3 +119,4 @@ module.exports.loadRulesFromDir = loadRulesFromDir;
 module.exports.decodeRequest = decodeRequest;
 module.exports.fullDecode = fullDecode;
 module.exports.Logger = Logger;
+module.exports.ReportingEngine = ReportingEngine;

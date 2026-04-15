@@ -1,0 +1,74 @@
+rule idor_bola_enumeration : api {
+    meta:
+        author      = "laraxaar"
+        description = "ID/BOLA enumeration - sequential ID access pattern"
+        severity    = "high"
+
+    target:
+        $url   = request.url
+        $query = request.query
+
+    strings:
+        $numeric_id = /\/\d{1,10}(\/|$)/
+        $uuid_pattern = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+
+    condition:
+        $numeric_id
+}
+
+rule mass_assignment_attempt : api {
+    meta:
+        author      = "laraxaar"
+        description = "Mass Assignment - sensitive fields in request body"
+        severity    = "critical"
+
+    target:
+        $body = request.body
+        $query = request.query
+
+    strings:
+        $admin_field = /"?(is_?admin|admin|role|permissions|privilege)"?\s*[:=]\s*"?(true|1|admin)/i
+        $id_override = /"?id"?\s*[:=]\s*["']?\d+["']?/i
+        $password_field = /"?password"?\s*[:=]\s*"[^"]*"/i
+
+    condition:
+        $admin_field or $id_override or $password_field
+}
+
+rule anomalous_content_type : api {
+    meta:
+        author      = "laraxaar"
+        description = "Unexpected Content-Type for endpoint"
+        severity    = "medium"
+
+    target:
+        $headers = request.headers
+        $url = request.url
+
+    strings:
+        $xml_content = /Content-Type.*xml/i
+        $json_api = /api.*json/i
+        $form_content = /Content-Type.*form/i
+        $api_v = /api\/v/i
+        $plain_content = /Content-Type.*plain/i
+        $api_slash = /api\//i
+
+    condition:
+        ($xml_content and $json_api) or ($form_content and $api_v) or ($plain_content and $api_slash)
+}
+
+rule api_version_enumeration : api {
+    meta:
+        author      = "laraxaar"
+        description = "API version probing"
+        severity    = "low"
+
+    target:
+        $url = request.url
+
+    strings:
+        $version_probe = /\/api\/(v?\d+\.?\d*|version|latest|alpha|beta|dev)/i
+
+    condition:
+        $version_probe
+}

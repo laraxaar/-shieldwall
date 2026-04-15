@@ -1,0 +1,78 @@
+rule double_base64_encoding : evasion {
+    meta:
+        author      = "laraxaar"
+        description = "Double Base64 encoding detected"
+        severity    = "high"
+
+    target:
+        $url   = request.url
+        $body  = request.body
+        $query = request.query
+
+    strings:
+        $b64_pattern = /[A-Za-z0-9+/]{20,}={0,2}/
+        $double_b64 = /[A-Za-z0-9+/]{40,}={0,2}/
+
+    condition:
+        $b64_pattern and $double_b64
+}
+
+rule hex_encoding_evasion : evasion {
+    meta:
+        author      = "laraxaar"
+        description = "Hex encoding in unexpected places"
+        severity    = "medium"
+
+    target:
+        $url   = request.url
+        $body  = request.body
+        $query = request.query
+
+    strings:
+        $hex_pattern = /\\x[0-9a-fA-F]{2}/
+        $unicode_hex = /\\u[0-9a-fA-F]{4}/
+        $percent_hex = /%[0-9a-fA-F]{2}/
+
+    condition:
+        $hex_pattern or $unicode_hex or $percent_hex
+}
+
+rule unicode_homoglyph_attack : evasion {
+    meta:
+        author      = "laraxaar"
+        description = "Unicode homoglyphs used to bypass filters"
+        severity    = "high"
+
+    target:
+        $url   = request.url
+        $body  = request.body
+
+    strings:
+        $cyrillic_a = /\u0430/  // Cyrillic 'а' looks like Latin 'a'
+        $cyrillic_o = /\u043E/  // Cyrillic 'о' looks like Latin 'o'
+        $greek_i = /\u03B9/    // Greek 'ι' looks like Latin 'i'
+        $fullwidth_chars = /[\uFF10-\uFF19\uFF21-\uFF3A\uFF41-\uFF5A]/
+
+    condition:
+        $cyrillic_a or $cyrillic_o or $greek_i or $fullwidth_chars
+}
+
+rule comment_obfuscation : evasion {
+    meta:
+        author      = "laraxaar"
+        description = "SQL/JS comments used to bypass filters"
+        severity    = "medium"
+
+    target:
+        $url   = request.url
+        $body  = request.body
+        $query = request.query
+
+    strings:
+        $sql_comment = /\/\*!\d+\*/  // MySQL version comments
+        $js_comment = /\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\//
+        $nested_comment = /\/\*.*\/\*.*\*\//
+
+    condition:
+        $sql_comment or $nested_comment
+}

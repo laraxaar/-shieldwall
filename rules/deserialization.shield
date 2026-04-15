@@ -1,0 +1,88 @@
+rule java_deserialization : deserialization {
+    meta:
+        author      = "laraxaar"
+        description = "Java insecure deserialization detection"
+        severity    = "critical"
+
+    target:
+        $body = request.body
+        $headers = request.headers
+        $query = request.query
+
+    strings:
+        $java_serial = /rO0AB/  // Base64 Java serialized
+        $java_hex = /ACED00[0-9A-Fa-f]+/  // Hex Java serialized
+        $ysoserial = /(Ping|Exec|ReverseShell|BindShell|JRMPListener)/i
+        $commons_coll = /org\.apache\.commons\.collections\.functors/i
+        $json_jackson = /"@class"\s*:\s*"[^"]+(ProcessBuilder|Runtime|URLClassLoader)/i
+        $xml_decoder = /<java\s+version=.*<object\s+class=/i
+
+    condition:
+        $java_serial or $java_hex or $ysoserial or $commons_coll or $json_jackson or $xml_decoder
+}
+
+rule php_deserialization : deserialization {
+    meta:
+        author      = "laraxaar"
+        description = "PHP object injection and deserialization attacks"
+        severity    = "critical"
+
+    target:
+        $body = request.body
+        $query = request.query
+        $cookies = request.cookies
+
+    strings:
+        $php_serial = /O:\d+:"[^"]+":\d+:\{/i
+        $php_array = /a:\d+:\{/i
+        $php_object = /C:\d+:"[^"]+":\d+:/i
+        $gadget_chain = /(Doctrine|Symfony|Laravel|Monolog|Guzzle)\\/i
+        $phar_wrapper = /phar:\/\/.*\/.*\.phar/i
+        $fast_destruct = /O:\d+:"[^"]+":\d+:\{[^}]*\}i:\d+;/i
+
+    condition:
+        $php_serial or $php_array or $phar_wrapper or 
+        ($gadget_chain and ($php_serial or $php_array))
+}
+
+rule nodejs_deserialization : deserialization {
+    meta:
+        author      = "laraxaar"
+        description = "Node.js prototype pollution and deserialization attacks"
+        severity    = "critical"
+
+    target:
+        $body = request.body
+        $query = request.query
+
+    strings:
+        $proto_pollute = /"__proto__"\s*:|"constructor"\s*:\s*\{\s*"prototype"/i
+        $merge_pollute = /Object\.assign.*__proto__/i
+        $lodash_defaults = /_(defaultsDeep|merge|mergeWith).*\{[^}]*constructor/i
+        $serialize_js = /Serializ(able|eJS).*\{[^}]*exec/i
+        $vm_context = /vm\.runIn(Context|NewContext).*\{[^}]*constructor/i
+
+    condition:
+        $proto_pollute or $merge_pollute or $lodash_defaults or $serialize_js or $vm_context
+}
+
+rule python_deserialization : deserialization {
+    meta:
+        author      = "laraxaar"
+        description = "Python pickle and YAML deserialization attacks"
+        severity    = "critical"
+
+    target:
+        $body = request.body
+        $headers = request.headers
+
+    strings:
+        $pickle_proto = /\x80\x02|\x80\x03|\x80\x04/  // Pickle protocol headers
+        $pickle_reduce = /\x8b\x94|\x8c\x05reduce/i
+        $yaml_exploit = /!!python\/(object|module|name)/i
+        $pyyaml_load = /load\(.*Loader\s*=\s*(yaml\.)?Loader\)/i
+        $django_cookie = /django\.core\.signing.*loads/i
+
+    condition:
+        $pickle_proto or $pickle_reduce or $yaml_exploit or $pyyaml_load
+}

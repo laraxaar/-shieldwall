@@ -1,0 +1,66 @@
+rule slowloris_attack : dos {
+    meta:
+        author      = "laraxaar"
+        description = "Slowloris-style slow HTTP attack detection"
+        severity    = "high"
+
+    target:
+        $headers = request.headers
+
+    strings:
+        $slow_header = /Content-Length:\s*\d{9,}/i
+        $incomplete_request = /Transfer-Encoding:\s*chunked/i
+
+    condition:
+        $slow_header or $incomplete_request
+}
+
+rule http_header_swelling : dos {
+    meta:
+        author      = "laraxaar"
+        description = "Abnormally long HTTP headers"
+        severity    = "high"
+
+    target:
+        $headers = request.headers
+        $raw_headers = request.raw_headers
+
+    strings:
+        $oversized_header = /.{8192,}/
+        $cookie_bomb = /Cookie:\s*.{4096,}/
+        $user_agent_flood = /User-Agent:\s*.{2048,}/
+
+    condition:
+        $oversized_header or $cookie_bomb or $user_agent_flood
+}
+
+rule endless_parameters : dos {
+    meta:
+        author      = "laraxaar"
+        description = "Query string with excessive parameters (DoS vector)"
+        severity    = "high"
+
+    target:
+        $url = request.raw_url
+        $query = request.query
+
+    strings:
+        $param_flood = /(\?|&)[^=]+=[^&]*(&[^=]+=[^&]*){50,}/
+        $deep_nesting = /%5B%5D|\[\].*\[\].*\[\].*\[\].*\[\]/
+
+    condition:
+        $param_flood or $deep_nesting
+}
+
+rule connection_flood : dos {
+    meta:
+        author      = "laraxaar"
+        description = "Rapid connection attempts from same source"
+        severity    = "critical"
+
+    target:
+        $rate = request.rate
+
+    condition:
+        $rate
+}

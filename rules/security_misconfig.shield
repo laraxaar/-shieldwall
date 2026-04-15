@@ -1,0 +1,85 @@
+rule debug_info_exposure : misconfig {
+    meta:
+        author      = "laraxaar"
+        description = "Access to debug/info endpoints"
+        severity    = "high"
+
+    target:
+        $url = request.url
+
+    strings:
+        $phpinfo = /phpinfo\.php/i
+        $server_status = /\/server-status/i
+        $server_info = /\/server-info/i
+        $actuator = /\/actuator\/(health|info|env|metrics|dump|trace)/i
+        $debug_endpoint = /\/debug\/(vars|info|config)/i
+        $swagger_ui = /\/swagger-ui\/(index\.html)?/i
+        $api_docs = /\/api-docs/i
+        $graphql_playground = /\/graphql\/(playground|explorer|ide)/i
+
+    condition:
+        $phpinfo or $server_status or $server_info or $actuator or 
+        $debug_endpoint or $swagger_ui or $api_docs or $graphql_playground
+}
+
+rule config_file_access : misconfig {
+    meta:
+        author      = "laraxaar"
+        description = "Attempt to access configuration files"
+        severity    = "critical"
+
+    target:
+        $url   = request.url
+        $query = request.query
+
+    strings:
+        $env_file = /\.env$/i
+        $env_backup = /\.env\.(backup|bak|old|swp)/i
+        $config_ext = /\.(yaml|yml|json|xml|ini|conf|config)$/i
+        $docker_file = /(Dockerfile|docker-compose\.ya?ml)/i
+        $npm_file = /package(-lock)?\.json/i
+        $git_file = /\.git\/(HEAD|config|index)/i
+
+    condition:
+        $env_file or $env_backup or $config_ext or $docker_file or $npm_file or $git_file
+}
+
+rule backup_file_access : misconfig {
+    meta:
+        author      = "laraxaar"
+        description = "Attempt to access backup files"
+        severity    = "high"
+
+    target:
+        $url = request.url
+
+    strings:
+        $sql_backup = /\.(sql|dump|backup)(\.gz|\.zip|\.tar)?$/i
+        $tar_backup = /\.(tar|tar\.gz|tgz|zip|rar)$/i
+        $numbered_backup = /\.~?\d+$/
+        $swp_file = /\.(swp|swo|swn)$/i
+        $bak_extensions = /\.(bak|backup|old|orig|save|tmp)$/i
+
+    condition:
+        $sql_backup or $tar_backup or $numbered_backup or $swp_file or $bak_extensions
+}
+
+rule method_override_attempt : misconfig {
+    meta:
+        author      = "laraxaar"
+        description = "HTTP method override attempt"
+        severity    = "medium"
+
+    target:
+        $headers = request.headers
+        $query = request.query
+
+    strings:
+        $x_method = /X-HTTP-Method/i
+        $x_method_override = /X-HTTP-Method-Override/i
+        $x_method_override_2 = /X-Method-Override/i
+        $_method_param = /_method=(PUT|DELETE|PATCH)/i
+
+    condition:
+        $x_method or $x_method_override or $x_method_override_2 or $_method_param
+}

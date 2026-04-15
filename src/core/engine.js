@@ -6,6 +6,7 @@ const { decodeRequest } = require('./decoder');
 const { parseRules, loadRulesFromDir } = require('./rule-parser');
 const { matchAllRules } = require('./rule-matcher');
 const Logger = require('./logger');
+const ReportingEngine = require('./reporting');
 
 const DEFAULT_RULES_DIR = path.join(__dirname, '..', '..', 'rules');
 const SEVERITY_PRIORITY = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
@@ -28,8 +29,10 @@ class ShieldWallEngine extends EventEmitter {
       excludePaths: options.excludePaths || [],
       excludeIPs: options.excludeIPs || [],
       modules: {
-        anomaly: true, honeypot: true, sqli: true, xss: true,
+        anomaly: true, smartAnomaly: true, honeypot: true, sqli: true, xss: true,
         pathTraversal: true, commandInjection: true,
+        botDetection: true, sessionAnomaly: true, apiAbuse: true,
+        ddosProtection: true, fingerprinter: true, reputation: true,
         ...(options.modules || {}),
       },
     };
@@ -38,6 +41,7 @@ class ShieldWallEngine extends EventEmitter {
       level: this.options.logLevel,
       silent: this.options.silent,
       json: this.options.jsonLogs,
+      maxHistory: options.maxHistory || 10000,
       onEvent: (event) => this.emit('log', event),
     });
 
@@ -49,10 +53,22 @@ class ShieldWallEngine extends EventEmitter {
 
     this.stats = { totalRequests: 0, blockedRequests: 0, detectedThreats: 0, startTime: Date.now() };
 
+    this.reporting = null;
+    if (options.reporting !== false) {
+      this.reporting = new ReportingEngine({
+        enabled: true,
+        reportsDir: options.reportsDir,
+        maxStoredReports: options.maxStoredReports,
+        logger: this.logger,
+        onReport: (report) => this.emit('report', report),
+      });
+    }
+
     this.logger.info('Engine initialized', {
       mode: this.options.mode,
       rulesLoaded: this.rules.length,
       modulesActive: this.modules.map(m => m.name),
+      reportingEnabled: !!this.reporting,
     });
   }
 
@@ -82,11 +98,18 @@ class ShieldWallEngine extends EventEmitter {
   _loadModules() {
     const map = {
       anomaly: '../modules/anomaly',
+      smartAnomaly: '../modules/smart-anomaly',
       honeypot: '../modules/honeypot',
       sqli: '../modules/sqli',
       xss: '../modules/xss',
       pathTraversal: '../modules/path-traversal',
       commandInjection: '../modules/command-injection',
+      botDetection: '../modules/bot-detection',
+      sessionAnomaly: '../modules/session-anomaly',
+      apiAbuse: '../modules/api-abuse',
+      ddosProtection: '../modules/ddos-protection',
+      fingerprinter: '../modules/fingerprinter',
+      reputation: '../modules/reputation',
     };
 
     for (const [name, modulePath] of Object.entries(map)) {
@@ -137,6 +160,13 @@ class ShieldWallEngine extends EventEmitter {
         matchedPattern: this._formatEvidence(match),
         analysis: match.analysis || null,
       });
+
+      if (this.options.modules.reputation !== false) {
+        try {
+          const { record } = require('../modules/reputation');
+          record(decodedReq.ip, match.category, match.severity);
+        } catch {}
+      }
     }
 
     this.stats.detectedThreats += allMatches.length;
@@ -197,7 +227,17 @@ class ShieldWallEngine extends EventEmitter {
       rulesLoaded: this.rules.length,
       modulesActive: this.modules.map(m => m.name),
       logStats: this.logger.getStats(),
+      reportsAvailable: this.reporting?.getStoredReports().length || 0,
     };
+  }
+
+  getReport(days = 14) {
+    if (!this.reporting) return null;
+    return this.reporting.generateManualReport(this.logger.history, days, `manual-${days}d`);
+  }
+
+  getStoredReports() {
+    return this.reporting?.getStoredReports() || [];
   }
 
   reloadRules() {

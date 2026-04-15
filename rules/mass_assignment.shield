@@ -1,0 +1,104 @@
+rule mass_assignment_admin_fields : injection {
+    meta:
+        author      = "laraxaar"
+        description = "Mass assignment - admin privilege fields in request body"
+        severity    = "critical"
+
+    target:
+        $body  = request.body
+        $query = request.query
+        $url   = request.url
+
+    strings:
+        $is_admin      = /"?is_?admin"?\s*[:=]\s*["']?(true|1|yes)/i
+        $is_root       = /"?is_?root"?\s*[:=]\s*["']?(true|1|yes)/i
+        $admin_flag    = /"?admin"?\s*[:=]\s*["']?(true|1|yes)/i
+        $root_flag     = /"?root"?\s*[:=]\s*["']?(true|1|yes)/i
+        $superuser     = /"?(super_?user|superuser)"?\s*[:=]\s*["']?(true|1|yes)/i
+        $sudo_flag     = /"?sudo"?\s*[:=]\s*["']?(true|1|yes)/i
+
+    condition:
+        $is_admin or $is_root or $admin_flag or $root_flag or $superuser or $sudo_flag
+}
+
+rule mass_assignment_role_escalation : injection {
+    meta:
+        author      = "laraxaar"
+        description = "Mass assignment - role/privilege escalation attempt"
+        severity    = "critical"
+
+    target:
+        $body  = request.body
+        $query = request.query
+
+    strings:
+        $role_admin    = /"?(role|user_?role|userType)"?\s*[:=]\s*["']?(admin|root|superuser|moderator|staff|manager)/i
+        $privilege     = /"?(privilege|privileges|perms|permissions)"?\s*[:=]\s*["']?(all|full|admin|root|write|delete)/i
+        $access_level  = /"?(access_?level|accessLevel|level)"?\s*[:=]\s*["']?(0|1|admin|root)/i
+        $account_type  = /"?(account_?type|accountType|type)"?\s*[:=]\s*["']?(admin|root|staff|internal)/i
+
+    condition:
+        $role_admin or $privilege or $access_level or $account_type
+}
+
+rule mass_assignment_internal_fields : injection {
+    meta:
+        author      = "laraxaar"
+        description = "Mass assignment - internal system fields that should not be user-modifiable"
+        severity    = "high"
+
+    target:
+        $body  = request.body
+        $query = request.query
+
+    strings:
+        $id_override       = /"?(id|_id|uuid|guid)"?\s*[:=]\s*["']?\d{1,20}/i
+        $created_at       = /"?(created_?at|createdAt|created)"?\s*[:=]/i
+        $updated_at       = /"?(updated_?at|updatedAt|modified)"?\s*[:=]/i
+        $deleted_flag      = /"?(deleted|is_?deleted|removed)"?\s*[:=]\s*["']?(false|0)/i
+        $verified_flag     = /"?(verified|is_?verified|confirmed|activated)"?\s*[:=]\s*["']?(true|1)/i
+        $password_hash    = /"?(password_?hash|pwd_hash|hash)"?\s*[:=]/i
+        $salt_field       = /"?(salt|password_?salt)"?\s*[:=]/i
+        $secret_field      = /"?(secret|api_?secret|client_?secret)"?\s*[:=]/i
+
+    condition:
+        $id_override or $created_at or $updated_at or $deleted_flag or $verified_flag or $password_hash or $salt_field or $secret_field
+}
+
+rule mass_assignment_protected_attributes : injection {
+    meta:
+        author      = "laraxaar"
+        description = "Mass assignment - protected attribute manipulation (Mongoose/Sequelize patterns)"
+        severity    = "critical"
+
+    target:
+        $body  = request.body
+
+    strings:
+        $mongoose_protected = /"?(__v|_id|\$where|\$gt|\$lt|\$ne|\$in|\$nin|\$regex)"?\s*:/i
+        $nosql_operator    = /\$\w+\s*:/
+        $deep_prototype    = /\[["']?(constructor|prototype|__proto__)["']?\]/i
+        $mongo_cmd         = /"?(find|update|remove|delete|aggregate|mapreduce)"?\s*:\s*\{/i
+
+    condition:
+        $mongoose_protected or $nosql_operator or $deep_prototype or $mongo_cmd
+}
+
+rule mass_assignment_email_verification_bypass : injection {
+    meta:
+        author      = "laraxaar"
+        description = "Mass assignment - email verification/confirmation bypass"
+        severity    = "high"
+
+    target:
+        $body  = request.body
+        $query = request.query
+
+    strings:
+        $email_verified   = /"?(email_?verified|emailVerified|verified)"?\s*[:=]\s*["']?(true|1|yes)/i
+        $confirmed_flag   = /"?(confirmed|is_?confirmed|active|is_?active|enabled)"?\s*[:=]\s*["']?(true|1)/i
+        $bypass_email    = /"?(skip_?email|bypass_?verification|skip_?confirm)"?\s*[:=]\s*["']?(true|1)/i
+
+    condition:
+        $email_verified or $confirmed_flag or $bypass_email
+}

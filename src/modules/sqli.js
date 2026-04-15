@@ -12,13 +12,25 @@ const PATTERNS = [
   { name: 'injection_comment_trail', pattern: /['"`]\s*(--|#|\/\*)/i, severity: 'high', description: 'Quote + comment — query truncation' },
 ];
 
+function testFields(pattern, decodedReq) {
+  // Check each field individually - more memory efficient than joining
+  const fields = [
+    decodedReq.url, decodedReq.body, decodedReq.path,
+    ...Object.values(decodedReq.query || {}),
+    ...Object.values(decodedReq.cookies || {}),
+  ];
+  for (const field of fields) {
+    if (field && pattern.test(String(field))) return String(field).match(pattern);
+  }
+  return null;
+}
+
 function check(decodedReq) {
-  const haystack = [decodedReq.url, decodedReq.body, decodedReq.path, Object.values(decodedReq.query || {}).join(' '), Object.values(decodedReq.cookies || {}).join(' ')].join('\n');
   const matches = [];
   for (const r of PATTERNS) {
-    if (r.pattern.test(haystack)) {
-      const f = haystack.match(r.pattern);
-      matches.push({ rule: r.name, tags: ['injection'], severity: r.severity, category: 'injection', description: r.description, author: 'ShieldWall', sourceFile: 'builtin:sqli', matchedPatterns: [{ name: r.name, matched: f?.[0] || '' }] });
+    const matched = testFields(r.pattern, decodedReq);
+    if (matched) {
+      matches.push({ rule: r.name, tags: ['injection'], severity: r.severity, category: 'injection', description: r.description, author: 'ShieldWall', sourceFile: 'builtin:sqli', matchedPatterns: [{ name: r.name, matched: matched[0] || '' }] });
     }
   }
   return matches;

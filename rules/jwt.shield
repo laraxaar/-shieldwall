@@ -1,0 +1,42 @@
+rule jwt_algorithm_attack : jwt {
+    meta:
+        author      = "laraxaar"
+        description = "JWT algorithm confusion and none algorithm attacks"
+        severity    = "critical"
+
+    target:
+        $headers = request.headers
+        $body = request.body
+        $query = request.query
+
+    strings:
+        $none_alg = /"alg"\s*:\s*"none"/i
+        $empty_sig = /eyJ[^.]+\.eyJ[^.]*\.[A-Za-z0-9_-]{0,2}$/
+        $alg_switch = /"alg"\s*:\s*"(HS256|HS384|HS512)".*"kid"\s*:/i
+        $jwk_inject = /"jwk"\s*:\s*\{[^}]*"kty"\s*:/i
+        $jku_redirect = /"jku"\s*:\s*"https?:\/\/[^"]+/i
+        $x5u_attack = /"x5u"\s*:\s*"https?:\/\/[^"]+/i
+
+    condition:
+        $none_alg or $empty_sig or $jwk_inject or $jku_redirect or $x5u_attack
+}
+
+rule jwt_key_confusion : jwt {
+    meta:
+        author      = "laraxaar"
+        description = "JWT key ID manipulation and confusion attacks"
+        severity    = "high"
+
+    target:
+        $headers = request.headers
+
+    strings:
+        $kid_traversal = /"kid"\s*:\s*".*\.{2}[\\\/].*"/i
+        $kid_sql_inject = /"kid"\s*:\s*".*(union|select|or|and).*"/i
+        $kid_command = /"kid"\s*:\s*".*[`;$|].*"/i
+        $kid_null = /"kid"\s*:\s*(null|undefined|false)/i
+        $kid_array = /"kid"\s*:\s*\[/i
+
+    condition:
+        $kid_traversal or $kid_sql_inject or $kid_command or $kid_null or $kid_array
+}

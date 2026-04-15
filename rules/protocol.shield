@@ -1,6 +1,6 @@
 rule protocol_abuse : protocol {
     meta:
-        author      = "ShieldWall"
+        author      = "laraxaar"
         description = "HTTP smuggling, SSRF, CRLF injection, host header attacks"
         severity    = "critical"
 

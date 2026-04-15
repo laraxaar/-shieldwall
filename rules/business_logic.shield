@@ -1,0 +1,134 @@
+rule rapid_form_submission : abuse {
+    meta:
+        author      = "laraxaar"
+        description = "Form submitted faster than humanly possible"
+        severity    = "medium"
+
+    target:
+        $body = request.body
+        $headers = request.headers
+        $timestamp = request.timestamp
+        $session = request.sessionId
+
+    strings:
+        $form_endpoint = /\/(submit|register|signup|checkout|contact)/i
+        $complete_form = /(email|name|phone|message|address).*=/i
+
+    condition:
+        $form_endpoint and $complete_form
+}
+
+rule suspicious_cart_activity : abuse {
+    meta:
+        author      = "laraxaar"
+        description = "Abnormal cart behavior - rapid changes or high-value manipulation"
+        severity    = "high"
+
+    target:
+        $url = request.url
+        $body = request.body
+
+    strings:
+        $cart_endpoint = /\/cart\/(add|update|modify)/i
+        $price_manipulation = /"?(price|cost|amount|total)"?\s*[:=]\s*["']?\d+/i
+        $quantity_spike = /"?quantity"?\s*[:=]\s*["']?\d{3,}/i
+
+    condition:
+        $cart_endpoint and ($price_manipulation or $quantity_spike)
+}
+
+rule duplicate_data_pattern : abuse {
+    meta:
+        author      = "laraxaar"
+        description = "Same data submitted from multiple IPs - possible bot farm"
+        severity    = "high"
+
+    target:
+        $body = request.body
+        $fingerprint = request.fingerprint
+
+    strings:
+        $email_pattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/
+        $phone_pattern = /\+?[\d\s\-\(\)]{7,20}/
+
+    condition:
+        $email_pattern
+}
+
+rule scraping_behavior : abuse {
+    meta:
+        author      = "laraxaar"
+        description = "Systematic data extraction pattern"
+        severity    = "medium"
+
+    target:
+        $url = request.url
+        $rate = request.rate
+        $pagination = request.query
+
+    strings:
+        $page_param = /[?&](page|offset|limit|start)=\d+/i
+        $list_endpoint = /\/(list|all|search|results|items)/i
+        $api_pagination = /\?.*(page|limit|per_page)=\d+.*&.*(sort|order)=/i
+
+    condition:
+        ($page_param or $list_endpoint) and $api_pagination
+}
+
+rule price_tampering_attempt : abuse {
+    meta:
+        author      = "laraxaar"
+        description = "Price/amount tampering - suspiciously low values or direct field manipulation in JSON"
+        severity    = "critical"
+
+    target:
+        $body = request.body
+        $url = request.url
+
+    strings:
+        $json_price_low = /"?(price|amount|total|cost)"?\s*[:=]\s*["']?(0\.0*[1-9]|0\.00|0\.[01]{2,})/i
+        $json_negative_price = /"?(price|amount|total|cost)"?\s*[:=]\s*["']?-\d/i
+        $json_price_zero = /"?(price|amount|total|cost)"?\s*[:=]\s*["']?0["']?[^0-9]/i
+        $payment_endpoint = /\/(checkout|payment|pay|order|purchase|cart|buy)/i
+
+    condition:
+        $payment_endpoint and ($json_price_low or $json_negative_price or $json_price_zero)
+}
+
+rule discount_coupon_manipulation : abuse {
+    meta:
+        author      = "laraxaar"
+        description = "Discount/coupon field tampering - unauthorized discount application"
+        severity    = "high"
+
+    target:
+        $body = request.body
+        $url = request.url
+
+    strings:
+        $discount_field = /"?(discount|coupon|promo|voucher|reduction)"?\s*[:=]\s*["']?\d{2,3}/i
+        $discount_percentage = /"?(discount_percent|discount_rate|percentage)"?\s*[:=]\s*["']?(9[0-9]|100)/i
+        $forced_free = /"?(is_free|free_order|zero_payment)"?\s*[:=]\s*["']?true/i
+
+    condition:
+        $discount_field or $discount_percentage or $forced_free
+}
+
+rule payment_data_tampering : abuse {
+    meta:
+        author      = "laraxaar"
+        description = "Payment request manipulation - currency swap, amount override, bypass attempts"
+        severity    = "critical"
+
+    target:
+        $body = request.body
+        $url = request.url
+
+    strings:
+        $currency_downgrade = /"?(currency|curr)"?\s*[:=]\s*["']?(usd|eur|gbp).*"?(amount|price)"?\s*[:=]\s*["']?\d{1,3}[^0-9]/i
+        $amount_override = /"?(final_amount|charged_amount|pay_amount|billing_amount)"?\s*[:=]\s*["']?\d{1,4}[^0-9]/i
+        $quantity_price_mismatch = /"?(quantity|qty)"?\s*[:=]\s*["']?\d{3,}.*"?(price|amount)"?\s*[:=]\s*["']?\d{1,3}[^0-9]/i
+
+    condition:
+        $currency_downgrade or $amount_override or $quantity_price_mismatch
+}

@@ -1,6 +1,6 @@
 rule traversal_attempt : traversal {
     meta:
-        author      = "ShieldWall"
+        author      = "laraxaar"
         description = "Directory traversal, LFI, RFI — matched on decoded request"
         severity    = "critical"
 
@@ -27,9 +27,9 @@ rule traversal_attempt : traversal {
 // fires when attacker obfuscates traversal via multi-layer encoding
 rule encoding_evasion : evasion {
     meta:
-        author      = "ShieldWall"
+        author      = "laraxaar"
         description = "Multi-layer encoding evasion (double-encode, overlong UTF-8, unicode)"
-        severity    = "high"
+        severity    = "medium"
 
     target:
         $url = request.raw_url
@@ -43,4 +43,29 @@ rule encoding_evasion : evasion {
     condition:
         $double_encode in $url or $overlong_utf8 in $url
         or $unicode_dot in $url or $excessive_slash in $url
+}
+
+// Detects encoding-based traversal evasion through API layers
+// Catches attacks like: /api/download?file=%252e%252e%252fetc%252fpasswd
+rule traversal_encoding_bypass : evasion {
+    meta:
+        author      = "laraxaar"
+        description = "Traversal via double/triple encoding in API parameters"
+        severity    = "high"
+
+    target:
+        $url    = request.url
+        $query  = request.query
+        $body   = request.body
+
+    strings:
+        $double_encoded_dot = /%25(25)*2e/i      // Double/triple encoded dot
+        $double_encoded_slash = /%25(25)*2f/i    // Double/triple encoded slash
+        $encoded_traversal = /%(25)*2e%(25)*2e%(25)*2f/i  // Encoded ../ pattern
+        $api_traversal = /api\/(v\d+\/)?(download|file|path|redirect|proxy|fetch)\?.*%(25)*2e/i
+        $overlong_utf8 = /%c0%ae|%c1%9c|%c0%af|%e0%80%ae/i  // Overlong UTF-8 encoding
+
+    condition:
+        ($double_encoded_dot or $double_encoded_slash or $encoded_traversal or $overlong_utf8)
+        and ($api_traversal in $url or $api_traversal in $body or $api_traversal in $query)
 }

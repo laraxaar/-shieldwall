@@ -11,13 +11,25 @@ const PATTERNS = [
   { name: 'xss_template_inject', pattern: /\{\{.*constructor\.|__proto__/i, severity: 'high', description: 'Template injection' },
 ];
 
+function testFields(pattern, decodedReq) {
+  const fields = [
+    decodedReq.url, decodedReq.body, decodedReq.path,
+    ...Object.values(decodedReq.query || {}),
+    ...Object.values(decodedReq.cookies || {}),
+    decodedReq.userAgent,
+  ];
+  for (const field of fields) {
+    if (field && pattern.test(String(field))) return String(field).match(pattern);
+  }
+  return null;
+}
+
 function check(decodedReq) {
-  const haystack = [decodedReq.url, decodedReq.body, decodedReq.path, Object.values(decodedReq.query || {}).join(' '), Object.values(decodedReq.cookies || {}).join(' '), decodedReq.userAgent].join('\n');
   const matches = [];
   for (const r of PATTERNS) {
-    if (r.pattern.test(haystack)) {
-      const f = haystack.match(r.pattern);
-      matches.push({ rule: r.name, tags: ['xss'], severity: r.severity, category: 'xss', description: r.description, author: 'ShieldWall', sourceFile: 'builtin:xss', matchedPatterns: [{ name: r.name, matched: f?.[0] || '' }] });
+    const matched = testFields(r.pattern, decodedReq);
+    if (matched) {
+      matches.push({ rule: r.name, tags: ['xss'], severity: r.severity, category: 'xss', description: r.description, author: 'ShieldWall', sourceFile: 'builtin:xss', matchedPatterns: [{ name: r.name, matched: matched[0] || '' }] });
     }
   }
   return matches;

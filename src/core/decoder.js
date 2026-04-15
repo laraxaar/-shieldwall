@@ -85,6 +85,11 @@ function decodeRequest(req) {
     rawUrl: req.url || '',
     rawBody: '',
     userAgent: '',
+    sessionId: req.sessionId || req.session?.id || req.cookies?.session || null,
+    timestamp: Date.now(),
+    geoip: req.geoip || null,
+    fingerprint: req.fingerprint || null,
+    rate: req.rate || null,
   };
 
   if (req.headers) {

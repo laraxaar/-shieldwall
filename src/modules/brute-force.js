@@ -9,6 +9,7 @@ class BruteForceGuard {
     this.blockDurationMs = options.blockDurationMs || 15 * 60_000;
     this.maxBlockDurationMs = options.maxBlockDurationMs || 24 * 60 * 60_000;
     this.progressiveBackoff = options.progressiveBackoff !== false;
+    this.trustProxy = options.trustProxy || false;
 
     this.sensitivePaths = new Set(
       (options.sensitivePaths || ['/login', '/api/auth', '/api/login', '/signin', '/api/signin'])
@@ -79,7 +80,14 @@ class BruteForceGuard {
     return false;
   }
 
-  _ip(req) { return req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown'; }
+  _ip(req) {
+    // Use x-forwarded-for only if explicitly trusted (behind proxy)
+    if (this.trustProxy && req.headers?.['x-forwarded-for']) {
+      const forwarded = req.headers['x-forwarded-for'].split(',')[0].trim();
+      if (forwarded) return forwarded;
+    }
+    return req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || 'unknown';
+  }
 
   _gc() {
     const now = Date.now();

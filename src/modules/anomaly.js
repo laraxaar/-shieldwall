@@ -20,6 +20,13 @@ const WEIGHTS = {
   emptyUserAgent: 2,
   pathDepth: 2,
   repeatingPatterns: 3,
+  highEntropy: 4,
+  parameterPollution: 5,
+  rawByteInjection: 6,
+  payloadInflation: 3,
+  nakedRequest: 3,
+  headerIntegrity: 2,
+  emptyBody: 2,
 };
 
 function charClassRatio(str, regex) {
@@ -71,17 +78,157 @@ function repeatingRatio(str) {
 
 const SOFT_KEYWORDS = /\b(select|union|insert|update|delete|drop|alter|exec|eval|system|passthru|shell_exec|require|include|document\.|window\.)\b/gi;
 
+// Shannon entropy - high entropy indicates encrypted/encoded attack payloads
+function calculateEntropy(str) {
+  if (!str || str.length < 10) return 0;
+  const freq = new Map();
+  for (const char of str) {
+    freq.set(char, (freq.get(char) || 0) + 1);
+  }
+  let entropy = 0;
+  const len = str.length;
+  for (const count of freq.values()) {
+    const p = count / len;
+    entropy -= p * Math.log2(p);
+  }
+  return entropy;
+}
+
+// Detect HTTP Parameter Pollution (duplicate keys)
+function detectParameterPollution(decodedReq) {
+  const indicators = [];
+  const query = decodedReq.query || {};
+  const body = decodedReq.body || {};
+
+  for (const [key, val] of Object.entries(query)) {
+    if (Array.isArray(val)) {
+      indicators.push(`query:${key}(${val.length}x)`);
+    }
+  }
+
+  if (typeof body === 'object' && body !== null) {
+    for (const [key, val] of Object.entries(body)) {
+      if (Array.isArray(val)) {
+        indicators.push(`body:${key}(${val.length}x)`);
+      }
+    }
+  }
+
+  const rawUrl = decodedReq.rawUrl || '';
+  const dupPattern = /[?&](\w+)=([^&]*)&.*\1=/g;
+  const dups = [...rawUrl.matchAll(dupPattern)];
+  for (const match of dups) {
+    indicators.push(`raw:${match[1]}`);
+  }
+
+  return indicators;
+}
+
+// Detect raw control bytes (ASCII < 32, excluding tab/lf/cr/space)
+function detectRawBytes(str) {
+  if (!str) return [];
+  const found = [];
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if ((code >= 0 && code <= 8) || (code >= 14 && code <= 31) || code === 127) {
+      found.push(`0x${code.toString(16).padStart(2, '0')}@pos${i}`);
+    }
+  }
+  return found;
+}
+
+// Detect payload inflation (large value for few keys)
+function detectPayloadInflation(decodedReq) {
+  const body = decodedReq.body;
+  if (!body || typeof body !== 'object') return null;
+
+  const keys = Object.keys(body);
+  if (keys.length === 0) return null;
+
+  const bodyStr = JSON.stringify(body);
+  const avgSize = bodyStr.length / keys.length;
+
+  if (avgSize > 100000 && keys.length <= 3) {
+    return { ratio: avgSize, keys: keys.length, total: bodyStr.length };
+  }
+  return null;
+}
+
+// Detect naked requests (poor headers from scripts)
+function detectNakedRequest(headers, userAgent) {
+  const indicators = [];
+
+  if (!headers['accept'] && !headers['Accept']) {
+    indicators.push('missing_accept');
+  }
+
+  if (!headers['accept-language'] && !headers['Accept-Language']) {
+    indicators.push('missing_accept_language');
+  }
+
+  if (!headers['accept-encoding'] && !headers['Accept-Encoding']) {
+    indicators.push('missing_accept_encoding');
+  }
+
+  const ua = userAgent || '';
+  if (/^python-requests|^axios|^node-fetch|^http\.client|^Go-http/i.test(ua)) {
+    indicators.push('automation_ua');
+  }
+
+  return indicators;
+}
+
+// Check header integrity for browser-like requests
+function checkHeaderIntegrity(method, headers, userAgent) {
+  const indicators = [];
+  const isBrowser = /Chrome|Firefox|Safari|Edge/i.test(userAgent || '');
+
+  if (!isBrowser) return indicators;
+
+  if (!headers['accept'] && !headers['Accept']) {
+    indicators.push('browser_no_accept');
+  }
+
+  if (!headers['accept-language'] && !headers['Accept-Language']) {
+    indicators.push('browser_no_lang');
+  }
+
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    const hasOrigin = headers['origin'] || headers['Origin'];
+    const hasReferer = headers['referer'] || headers['Referer'];
+    if (!hasOrigin && !hasReferer) {
+      indicators.push('post_no_origin');
+    }
+  }
+
+  return indicators;
+}
+
+// Check for empty body with JSON content-type
+function detectEmptyBody(headers, body) {
+  const contentType = headers['content-type'] || headers['Content-Type'] || '';
+  if (contentType.includes('application/json')) {
+    if (!body || (typeof body === 'string' && body.trim().length === 0) ||
+        (typeof body === 'object' && Object.keys(body).length === 0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function analyze(decodedReq) {
   const factors = [];
   let score = 0;
 
   const add = (weight, name, detail) => { score += weight; factors.push({ weight, name, detail }); };
 
+  const MAX_ANALYSIS_SIZE = 10000;
   const allValues = [
-    decodedReq.url, decodedReq.body,
-    ...Object.values(decodedReq.query || {}),
-    ...Object.values(decodedReq.cookies || {}),
-  ].join('\n');
+    decodedReq.url?.slice(0, MAX_ANALYSIS_SIZE),
+    decodedReq.body?.slice(0, MAX_ANALYSIS_SIZE),
+    ...Object.values(decodedReq.query || {}).map(v => String(v).slice(0, 500)),
+    ...Object.values(decodedReq.cookies || {}).map(v => String(v).slice(0, 500)),
+  ].join('\n').slice(0, MAX_ANALYSIS_SIZE);
 
   const encLayers = countEncodingLayers(decodedReq.rawUrl || '');
   if (encLayers >= 2) add(WEIGHTS.encodingLayers * encLayers, 'multi_layer_encoding', `${encLayers} encoding layers detected`);
@@ -123,6 +270,28 @@ function analyze(decodedReq) {
   const pathSegs = (decodedReq.path || '').split('/').filter(Boolean).length;
   if (pathSegs > 10) add(WEIGHTS.pathDepth, 'deep_path', `${pathSegs} path segments`);
 
+  const entropy = calculateEntropy(allValues);
+  if (entropy > 5.5) add(WEIGHTS.highEntropy, 'high_entropy', `Entropy ${entropy.toFixed(2)} (likely encoded payload)`);
+
+  const pollution = detectParameterPollution(decodedReq);
+  if (pollution.length > 0) add(WEIGHTS.parameterPollution, 'parameter_pollution', `${pollution.length} duplicate keys: ${pollution.slice(0, 3).join(', ')}`);
+
+  const rawBytes = detectRawBytes(allValues);
+  if (rawBytes.length > 0) add(WEIGHTS.rawByteInjection, 'raw_bytes', `${rawBytes.length} control bytes: ${rawBytes.slice(0, 3).join(', ')}`);
+
+  const inflation = detectPayloadInflation(decodedReq);
+  if (inflation) add(WEIGHTS.payloadInflation, 'payload_inflation', `${(inflation.ratio/1024).toFixed(1)}KB avg per ${inflation.keys} keys`);
+
+  const naked = detectNakedRequest(decodedReq.headers, decodedReq.userAgent);
+  if (naked.length > 0) add(WEIGHTS.nakedRequest, 'naked_request', naked.slice(0, 3).join(', '));
+
+  const headerIssues = checkHeaderIntegrity(decodedReq.method, decodedReq.headers, decodedReq.userAgent);
+  if (headerIssues.length > 0) add(WEIGHTS.headerIntegrity, 'header_integrity', headerIssues.join(', '));
+
+  if (detectEmptyBody(decodedReq.headers, decodedReq.body)) {
+    add(WEIGHTS.emptyBody, 'empty_json_body', 'Content-Type: application/json but body is empty');
+  }
+
   let level = 'none';
   if (score >= CRITICAL_THRESHOLD) level = 'critical';
   else if (score >= SCORE_THRESHOLD) level = 'high';
@@ -135,10 +304,34 @@ function analyze(decodedReq) {
 
 function check(decodedReq) {
   const result = analyze(decodedReq);
-  if (result.score < SCORE_THRESHOLD) return [];
+
+  if (result.score < SCORE_THRESHOLD * 0.3) {
+    return [];
+  }
+
+  if (result.score < SCORE_THRESHOLD) {
+    return [{
+      rule: 'anomaly_detection',
+      tags: ['anomaly', 'low_confidence', 'preliminary'],
+      severity: 'low',
+      category: 'anomaly',
+      description: `Preliminary anomaly signals detected (score ${result.score}/${SCORE_THRESHOLD}). Recommend smart-anomaly analysis.`,
+      author: 'laraxaar',
+      sourceFile: 'builtin:anomaly',
+      matchedPatterns: result.factors.map(f => ({ name: f.name, matched: f.detail })),
+      analysis: { ...result, recommendation: 'escalate_to_smart_anomaly' },
+      escalateTo: 'smart_anomaly',
+    }];
+  }
+
   return [{
-    rule: 'anomaly_detection', tags: ['anomaly'], severity: result.level, category: 'anomaly',
-    description: result.description, author: 'ShieldWall', sourceFile: 'builtin:anomaly',
+    rule: 'anomaly_detection',
+    tags: ['anomaly', result.level === 'critical' ? 'confirmed' : 'suspicious'],
+    severity: result.level,
+    category: 'anomaly',
+    description: result.description,
+    author: 'laraxaar',
+    sourceFile: 'builtin:anomaly',
     matchedPatterns: result.factors.map(f => ({ name: f.name, matched: f.detail })),
     analysis: result,
   }];

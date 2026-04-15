@@ -12,13 +12,23 @@ const PATTERNS = [
   { name: 'traversal_null_byte', pattern: /%00\.(php|jsp|asp|html|txt)/i, severity: 'critical', description: 'Null byte path truncation' },
 ];
 
+function testFields(pattern, decodedReq) {
+  const fields = [
+    decodedReq.url, decodedReq.rawUrl, decodedReq.body, decodedReq.path,
+    ...Object.values(decodedReq.query || {}),
+  ];
+  for (const field of fields) {
+    if (field && pattern.test(String(field))) return String(field).match(pattern);
+  }
+  return null;
+}
+
 function check(decodedReq) {
-  const haystack = [decodedReq.url, decodedReq.rawUrl, decodedReq.body, decodedReq.path, Object.values(decodedReq.query || {}).join(' ')].join('\n');
   const matches = [];
   for (const r of PATTERNS) {
-    if (r.pattern.test(haystack)) {
-      const f = haystack.match(r.pattern);
-      matches.push({ rule: r.name, tags: ['traversal'], severity: r.severity, category: 'path-traversal', description: r.description, author: 'ShieldWall', sourceFile: 'builtin:path-traversal', matchedPatterns: [{ name: r.name, matched: f?.[0] || '' }] });
+    const matched = testFields(r.pattern, decodedReq);
+    if (matched) {
+      matches.push({ rule: r.name, tags: ['traversal'], severity: r.severity, category: 'path-traversal', description: r.description, author: 'ShieldWall', sourceFile: 'builtin:path-traversal', matchedPatterns: [{ name: r.name, matched: matched[0] || '' }] });
     }
   }
   return matches;
