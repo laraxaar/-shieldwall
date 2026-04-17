@@ -10,3 +10,7 @@ dist/
 
 *.bak
 *.tmp
+
+# Excluded tests and demos
+anomaly.test.js
+smart-anomaly-demo.js
