@@ -1,8 +1,8 @@
 rule double_base64_encoding : evasion {
     meta:
         author      = "laraxaar"
-        description = "Double Base64 encoding detected"
-        severity    = "high"
+        description = "Suspiciously long Base64 blob — possible double-encoded payload"
+        severity    = "medium"
 
     target:
         $url   = request.url
@@ -10,17 +10,19 @@ rule double_base64_encoding : evasion {
         $query = request.query
 
     strings:
-        $b64_pattern = /[A-Za-z0-9+/]{20,}={0,2}/
-        $double_b64 = /[A-Za-z0-9+/]{40,}={0,2}/
+        // 100+ chars of base64 is well above normal tokens/keys
+        $long_b64 = /[A-Za-z0-9+\/]{100,}={0,2}/
+        // Context: base64 blob appears near injection-related parameters
+        $suspicious_param = /(cmd|exec|payload|data|code|script|eval|shell|command)\s*[=:]/i
 
     condition:
-        $b64_pattern and $double_b64
+        $long_b64 and $suspicious_param
 }
 
 rule hex_encoding_evasion : evasion {
     meta:
         author      = "laraxaar"
-        description = "Hex encoding in unexpected places"
+        description = "Hex or unicode escape sequences in unexpected places"
         severity    = "medium"
 
     target:
@@ -31,30 +33,29 @@ rule hex_encoding_evasion : evasion {
     strings:
         $hex_pattern = /\\x[0-9a-fA-F]{2}/
         $unicode_hex = /\\u[0-9a-fA-F]{4}/
-        $percent_hex = /%[0-9a-fA-F]{2}/
+        // Removed: $percent_hex — matches literally ANY URL-encoded character
 
     condition:
-        $hex_pattern or $unicode_hex or $percent_hex
+        $hex_pattern or $unicode_hex
 }
 
 rule unicode_homoglyph_attack : evasion {
     meta:
         author      = "laraxaar"
-        description = "Unicode homoglyphs used to bypass filters"
-        severity    = "high"
+        description = "Unicode homoglyphs near security-sensitive keywords — possible filter bypass"
+        severity    = "medium"
 
     target:
         $url   = request.url
         $body  = request.body
 
     strings:
-        $cyrillic_a = /\u0430/  // Cyrillic 'а' looks like Latin 'a'
-        $cyrillic_o = /\u043E/  // Cyrillic 'о' looks like Latin 'o'
-        $greek_i = /\u03B9/    // Greek 'ι' looks like Latin 'i'
         $fullwidth_chars = /[\uFF10-\uFF19\uFF21-\uFF3A\uFF41-\uFF5A]/
+        // Require proximity to injection keywords to avoid flagging Russian/Greek text
+        $injection_context = /(select|union|script|admin|login|password|exec|eval|drop|alert)/i
 
     condition:
-        $cyrillic_a or $cyrillic_o or $greek_i or $fullwidth_chars
+        $fullwidth_chars and $injection_context
 }
 
 rule comment_obfuscation : evasion {
@@ -70,7 +71,6 @@ rule comment_obfuscation : evasion {
 
     strings:
         $sql_comment = /\/\*!\d+\*/  // MySQL version comments
-        $js_comment = /\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\//
         $nested_comment = /\/\*.*\/\*.*\*\//
 
     condition:

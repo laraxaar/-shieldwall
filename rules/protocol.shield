@@ -1,29 +1,56 @@
-rule protocol_abuse : protocol {
+// HTTP protocol abuse — smuggling, CRLF injection, host header attacks.
+// SSRF patterns live in ssrf.shield to avoid rule collision (1 request → 5 rules).
+
+rule http_smuggling : protocol {
     meta:
         author      = "laraxaar"
-        description = "HTTP smuggling, SSRF, CRLF injection, host header attacks"
+        description = "HTTP request smuggling — CL/TE desync and chunked encoding abuse"
         severity    = "critical"
 
     target:
-        $url     = request.url
         $headers = request.headers
-        $query   = request.query
-        $body    = request.body
 
     strings:
         $smuggle_cl_te  = /content-length.*transfer-encoding|transfer-encoding.*content-length/i
         $smuggle_chunk  = /transfer-encoding:\s*(cow|identity|x-|chunked.*chunked)/i
-        $ssrf_internal  = /(localhost|127\.0\.0\.1|0\.0\.0\.0|::1|0x7f000001|169\.254\.169\.254)/i
-        $ssrf_private   = /(10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)/i
-        $ssrf_cloud     = /(metadata\.google|metadata\.azure|100\.100\.100\.200)/i
-        $ssrf_proto     = /(file|gopher|dict):\/\//i
-        $crlf           = /%0[da]%0[da]/i
-        $host_inject    = /host:.*[<>'";\(\)]/i
 
     condition:
-        ($smuggle_cl_te in $headers or $smuggle_chunk in $headers)
-        or ($ssrf_internal in $url or $ssrf_internal in $body or $ssrf_internal in $query)
-        or $ssrf_cloud or $ssrf_proto
-        or ($crlf in $url or $crlf in $query)
-        or $host_inject
+        $smuggle_cl_te in $headers or $smuggle_chunk in $headers
+}
+
+rule crlf_injection : protocol {
+    meta:
+        author      = "laraxaar"
+        description = "CRLF injection — header splitting via encoded newlines"
+        severity    = "high"
+
+    target:
+        $url   = request.url
+        $query = request.query
+        $body  = request.body
+
+    strings:
+        $crlf_encoded = /%0[da]%0[da]/i
+        $crlf_double  = /%250[da]%250[da]/i
+        $crlf_unicode = /%u000[da]/i
+
+    condition:
+        $crlf_encoded in $url or $crlf_encoded in $query or
+        $crlf_double in $url or $crlf_unicode in $url
+}
+
+rule host_header_injection : protocol {
+    meta:
+        author      = "laraxaar"
+        description = "Host header poisoning — injection characters in Host header"
+        severity    = "high"
+
+    target:
+        $headers = request.headers
+
+    strings:
+        $host_inject = /host:.*[<>'";\(\)]/i
+
+    condition:
+        $host_inject
 }

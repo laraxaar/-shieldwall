@@ -34,7 +34,7 @@ rule upload_evasion : upload {
 
     strings:
         $case_bypass = /filename=.*\.\p{Lu}+\.(php|jsp|asp|exe)/iu
-        $alternate_ext = /\.(phtml|php[3-5]|phar|phps|jspx|jspa)/i  // Alternative PHP/JSP executables
+        $alternate_ext = /\.(phtml|php[3-5]|phar|phps|jspx|jspa)/i
         $reverse_ext = /filename=.*(php|jsp|asp)\.[^.]+\./i
         $path_traversal = /filename=.*[\\\/]\.\.[\\\/]/i
         $stream_wrapper = /(php|data|expect|input|filter):\/\//i
@@ -46,14 +46,16 @@ rule upload_evasion : upload {
 rule oversized_upload : upload {
     meta:
         author      = "laraxaar"
-        description = "Suspiciously large file uploads"
-        severity    = "medium"
+        description = "Very large file upload (>1GB) — classification signal, not necessarily malicious"
+        severity    = "low"
+        category    = "classification"
 
     target:
         $headers = request.headers
 
     strings:
-        $huge_file = /content-length\s*:\s*(\d{9,}|[5-9]\d{8})/i  // >500MB
+        // >1GB — video, backups, ML datasets can be this size legitimately
+        $huge_file = /content-length\s*:\s*\d{10,}/i
 
     condition:
         $huge_file

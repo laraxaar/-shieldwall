@@ -1,40 +1,40 @@
 rule cors_abuse : cors {
     meta:
         author      = "laraxaar"
-        description = "CORS misconfiguration and abuse attempts"
+        description = "CORS misconfiguration abuse — reflected origins and credential leaks"
         severity    = "high"
 
     target:
         $headers = request.headers
 
     strings:
-        $null_origin = /origin\s*:\s*null/i
-        $wildcard_reflect = /access-control-allow-origin\s*:\s*\*/i
+        // Removed: $null_origin — legitimate in sandboxed webviews, mobile apps, local files
         $reflected_origin = /origin\s*:\s*https?:\/\/evil\.|origin\s*:\s*https?:\/\/attacker\./i
-        $preflight_bypass = /access-control-request-method\s*:\s*(put|delete|patch)/i
+        $wildcard_reflect = /access-control-allow-origin\s*:\s*\*/i
         $credentials_with_wildcard = /access-control-allow-credentials\s*:\s*true/i
         $long_domain = /origin\s*:\s*https?:\/\/[^\/]{100,}/i
 
     condition:
-        $null_origin or $reflected_origin or 
-        ($wildcard_reflect and $credentials_with_wildcard)
+        $reflected_origin or 
+        ($wildcard_reflect and $credentials_with_wildcard) or
+        $long_domain
 }
 
 rule cors_preflight_attack : cors {
     meta:
         author      = "laraxaar"
-        description = "CORS preflight request abuse"
-        severity    = "medium"
+        description = "CORS preflight request abuse — suspicious methods or excessive headers"
+        severity    = "low"
 
     target:
         $headers = request.headers
-        $method = request.method
 
     strings:
-        $suspicious_method = /access-control-request-method\s*:\s*(trace|connect|options)/i
-        $custom_header = /access-control-request-headers\s*:\s*(x-auth|authorization|cookie|session)/i
-        $many_headers = /access-control-request-headers\s*:\s*[^,]+,[^,]+,[^,]+,[^,]+,/i
+        $suspicious_method = /access-control-request-method\s*:\s*(trace|connect)/i
+        // Removed: authorization/cookie — normal CORS preflight for any auth'd API
+        $many_headers = /access-control-request-headers\s*:\s*[^,]+,[^,]+,[^,]+,[^,]+,[^,]+,[^,]+,/i
+        $null_origin = /origin\s*:\s*null/i
 
     condition:
-        $suspicious_method or $custom_header or $many_headers
+        $suspicious_method or $many_headers or $null_origin
 }

@@ -1,6 +1,23 @@
 'use strict';
 
-// Rule matcher — evaluates compiled .shield ASTs against decoded requests
+/**
+ * @file rule-matcher.js
+ * @description YARA-inspired Signature Evaluation Engine.
+ * 
+ * ROLE IN ARCHITECTURE:
+ * It receives normalized (decoded) HTTP payloads and evaluates them against compiled
+ * `.shield` DSL rules. It executes the boolean logic tree (and, or, match_in, etc).
+ * 
+ * DATA FLOW:
+ * [engine.js] passes `decodedReq` -> `prepareMatchData()` creates flat strings -> 
+ *  `evaluate()` recursively checks AST nodes -> `matchAllRules()` outputs Threat Matches.
+ * 
+ * CRITICAL FALSE POSITIVE (FP) MITIGATION:
+ * The legacy stringifier concatenated everything into `md.full`. This caused massive 
+ * False Positives on XSS signatures when evaluating benign data (e.g., a blog post about XSS).
+ * The new stringifier flattens JSON arrays properly and rules strongly prefer `resolveTarget`
+ * over generic `md.full` matches.
+ */
 
 const TARGET_MAP = {
   'request.url': 'url', 'request.path': 'path', 'request.body': 'body',
@@ -17,6 +34,26 @@ const TARGET_MAP = {
   'request.protocol': 'protocol',
 };
 
+/**
+ * Transforms nested objects into a flat string representation safely.
+ * FP MITIGATION: Resolves crashes where arrays/objects in GraphQL/JSON are fed to Object.entries.
+ * @param {any} val - The value to stringify.
+ * @returns {string} Safe flattened string.
+ */
+function _safeStringify(val) {
+  if (typeof val === 'string') return val;
+  if (Array.isArray(val)) return val.map(_safeStringify).join(',');
+  if (val !== null && typeof val === 'object') {
+    return Object.entries(val).map(([k, v]) => `${k}=${_safeStringify(v)}`).join('&');
+  }
+  return String(val || '');
+}
+
+/**
+ * Normalizes the decoded request payload into mapping strings for RegExp execution.
+ * @param {Object} d - Decoded request object from `decoder.js`.
+ * @returns {Object} Search-optimized data structure.
+ */
 function prepareMatchData(d) {
   const data = {
     url: d.url || '', path: d.path || '', body: d.body || '',
@@ -32,23 +69,52 @@ function prepareMatchData(d) {
     hostname: (d.headers && (d.headers['host'] || d.headers['Host'])) || '',
     protocol: d.protocol || 'http',
   };
-  if (d.query && typeof d.query === 'object') data.queryString = Object.entries(d.query).map(([k, v]) => `${k}=${v}`).join('&');
-  if (d.headers && typeof d.headers === 'object') data.headerString = Object.entries(d.headers).map(([k, v]) => `${k}: ${v}`).join('\n');
-  if (d.cookies && typeof d.cookies === 'object') data.cookieString = Object.entries(d.cookies).map(([k, v]) => `${k}=${v}`).join('; ');
-  if (d.geoip && typeof d.geoip === 'object') data.geoipString = Object.entries(d.geoip).map(([k, v]) => `${k}=${v}`).join(';');
-  if (d.fingerprint && typeof d.fingerprint === 'object') data.fingerprintString = Object.entries(d.fingerprint).map(([k, v]) => `${k}=${v}`).join(';');
-  if (d.rate && typeof d.rate === 'object') data.rateString = Object.entries(d.rate).map(([k, v]) => `${k}=${v}`).join(';');
+
+  if (d.query) data.queryString = _safeStringify(d.query);
+  if (d.headers) data.headerString = _safeStringify(d.headers);
+  if (d.cookies) data.cookieString = _safeStringify(d.cookies);
+  if (d.geoip) data.geoipString = _safeStringify(d.geoip);
+  if (d.fingerprint) data.fingerprintString = _safeStringify(d.fingerprint);
+  if (d.rate) data.rateString = _safeStringify(d.rate);
+
+  // DEEP DIVE: 'data.full' is a brute-force search space. 
+  // Should only be used by `any_of_them` global fallback rules. Do not map explicit targets to this.
   data.full = [data.url, data.queryString, data.body, data.headerString, data.cookieString, data.geoipString, data.fingerprintString].join('\n');
   return data;
 }
 
-function testPattern(def, text) { return def?.compiled && text ? def.compiled.test(text) : false; }
+/**
+ * Executes a RegExp pattern against the target string safely.
+ * @param {Object} def - Compiled string definition from rule.
+ * @param {string} text - The target text surface.
+ * @returns {boolean} True if matched.
+ */
+function testPattern(def, text) { 
+  return def?.compiled && text ? def.compiled.test(text) : false; 
+}
 
+/**
+ * Resolves the specific DSL target string (e.g. `request.body`) mapping to the internal data structure.
+ * @param {string} name - The DSL target variable name.
+ * @param {Object} rule - The current executing rule.
+ * @param {Object} md - The Match Data surface.
+ * @returns {string} The resolved string content.
+ */
 function resolveTarget(name, rule, md) {
-  if (rule.targets?.[name]) { const mapped = TARGET_MAP[rule.targets[name]] || rule.targets[name]; return md[mapped] || ''; }
+  if (rule.targets?.[name]) { 
+    const mapped = TARGET_MAP[rule.targets[name]] || rule.targets[name]; 
+    return md[mapped] || ''; 
+  }
   return md.full;
 }
 
+/**
+ * Evaluates the AST condition block recursively.
+ * @param {Object} node - Current AST node (`and`, `or`, `match`, etc).
+ * @param {Object} rule - The executing rule context.
+ * @param {Object} md - The normalized search data surface.
+ * @returns {boolean} True if the node evaluates positively.
+ */
 function evaluate(node, rule, md) {
   if (!node) return true;
   switch (node.type) {
@@ -66,20 +132,37 @@ function evaluate(node, rule, md) {
   }
 }
 
+/**
+ * Iterates across all loaded signatures, evaluating them against the request payload.
+ * Outputs matches acting as 'Signals' for engine.js's Unified Risk Aggregator.
+ * @param {Array} rules - Parsed rule objects.
+ * @param {Object} decodedReq - Request data.
+ * @returns {Array} List of triggered match objects containing severity and context.
+ */
 function matchAllRules(rules, decodedReq) {
   const md = prepareMatchData(decodedReq);
   const matches = [];
+
   for (const rule of rules) {
     if (!evaluate(rule.condition, rule, md)) continue;
+
     const mp = [];
     for (const [name, def] of Object.entries(rule.strings)) {
-      if (testPattern(def, md.full)) { const m = md.full.match(def.compiled); mp.push({ name, matched: m ? m[0] : '(matched)' }); }
+      if (testPattern(def, md.full)) { 
+        const m = md.full.match(def.compiled); 
+        mp.push({ name, matched: m ? m[0] : '(matched)' }); 
+      }
     }
+
     matches.push({
-      rule: rule.name, tags: rule.tags, severity: rule.meta.severity || 'medium',
+      rule: rule.name, 
+      tags: rule.tags, 
+      severity: rule.meta.severity || 'medium',
       category: rule.tags[0] || rule.meta.category || 'unknown',
-      description: rule.meta.description || '', author: rule.meta.author || 'ShieldWall',
-      sourceFile: rule.sourceFile || 'inline', matchedPatterns: mp,
+      description: rule.meta.description || '', 
+      author: rule.meta.author || 'ShieldWall',
+      sourceFile: rule.sourceFile || 'inline', 
+      matchedPatterns: mp,
     });
   }
   return matches;

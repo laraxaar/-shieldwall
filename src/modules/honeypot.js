@@ -1,15 +1,29 @@
 'use strict';
 
+/**
+ * @file honeypot.js
+ * @description In-memory DOM-injection Honeypot traps.
+ * 
+ * ROLE IN ARCHITECTURE:
+ * Generates synthetic polymorph HTML payloads invisible to regular users but detectable
+ * by scrapers/zombie bots. Identifies advanced persistent automation parsing the DOM tree.
+ * 
+ * DATA FLOW:
+ * [Middleware Layer] -> `injectMiddleware(html)` -> [Client Bound].
+ * If inbound requests target trap routes -> `check(req)` maps 'critical' honeypot violations.
+ * 
+ * CRITICAL FALSE POSITIVE (FP) MITIGATION:
+ * Fully randomized class names and hidden DOM boundaries prevent semantic tools (screen readers)
+ * from triggering accidental clicks, preserving accessibility bounds.
+ */
+
 const crypto = require('crypto');
 
-// Honeypot traps — invisible HTML elements and fake endpoints that only bots interact with
-
-// Динамические имена полей и заголовков генерируются при каждом запуске сервера.
-// Это исключает возможность статического вырезания полей вроде `_hp_token` продвинутыми ботами.
+// Dynamic initialization parameters preventing heuristic rule building by threat actors.
 const HIDDEN_FIELD_NAME = '_hp_' + crypto.randomBytes(4).toString('hex');
 const TRAP_HEADER = 'X-Trap-' + crypto.randomBytes(4).toString('hex');
 
-// Уязвимые пути по-умолчанию + динамические случайные пути
+// Legacy unpatched endpoint vulnerabilities mapped dynamically.
 const BASE_TRAP_PATHS = [
   '/admin-panel', '/wp-admin', '/wp-login.php', '/administrator',
   '/phpmyadmin', '/api/internal/debug', '/api/v1/admin/users',

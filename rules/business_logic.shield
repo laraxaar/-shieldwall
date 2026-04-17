@@ -1,28 +1,11 @@
-rule rapid_form_submission : abuse {
-    meta:
-        author      = "laraxaar"
-        description = "Form submitted faster than humanly possible"
-        severity    = "medium"
-
-    target:
-        $body = request.body
-        $headers = request.headers
-        $timestamp = request.timestamp
-        $session = request.sessionId
-
-    strings:
-        $form_endpoint = /\/(submit|register|signup|checkout|contact)/i
-        $complete_form = /(email|name|phone|message|address).*=/i
-
-    condition:
-        $form_endpoint and $complete_form
-}
+// Business logic rules — these are inherently application-specific.
+// Users should tune thresholds and endpoint patterns for their stack.
 
 rule suspicious_cart_activity : abuse {
     meta:
         author      = "laraxaar"
-        description = "Abnormal cart behavior - rapid changes or high-value manipulation"
-        severity    = "high"
+        description = "Abnormal cart behavior — rapid changes or high-value manipulation"
+        severity    = "medium"
 
     target:
         $url = request.url
@@ -40,8 +23,8 @@ rule suspicious_cart_activity : abuse {
 rule duplicate_data_pattern : abuse {
     meta:
         author      = "laraxaar"
-        description = "Same data submitted from multiple IPs - possible bot farm"
-        severity    = "high"
+        description = "Same structured data submitted — possible bot farm or credential stuffing"
+        severity    = "low"
 
     target:
         $body = request.body
@@ -50,16 +33,18 @@ rule duplicate_data_pattern : abuse {
     strings:
         $email_pattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/
         $phone_pattern = /\+?[\d\s\-\(\)]{7,20}/
+        $form_endpoint = /\/(register|signup|login|subscribe|contact)/i
 
     condition:
-        $email_pattern
+        $form_endpoint and $email_pattern and $phone_pattern
 }
 
 rule scraping_behavior : abuse {
     meta:
         author      = "laraxaar"
-        description = "Systematic data extraction pattern"
-        severity    = "medium"
+        description = "Systematic data extraction pattern — pagination + sorting on list endpoints"
+        severity    = "low"
+        category    = "classification"
 
     target:
         $url = request.url
@@ -72,13 +57,13 @@ rule scraping_behavior : abuse {
         $api_pagination = /\?.*(page|limit|per_page)=\d+.*&.*(sort|order)=/i
 
     condition:
-        ($page_param or $list_endpoint) and $api_pagination
+        $list_endpoint and $page_param and $api_pagination
 }
 
 rule price_tampering_attempt : abuse {
     meta:
         author      = "laraxaar"
-        description = "Price/amount tampering - suspiciously low values or direct field manipulation in JSON"
+        description = "Price/amount tampering — suspiciously low values or direct field manipulation"
         severity    = "critical"
 
     target:
@@ -98,26 +83,26 @@ rule price_tampering_attempt : abuse {
 rule discount_coupon_manipulation : abuse {
     meta:
         author      = "laraxaar"
-        description = "Discount/coupon field tampering - unauthorized discount application"
-        severity    = "high"
+        description = "Discount/coupon field tampering — unauthorized discount application"
+        severity    = "medium"
 
     target:
         $body = request.body
         $url = request.url
 
     strings:
-        $discount_field = /"?(discount|coupon|promo|voucher|reduction)"?\s*[:=]\s*["']?\d{2,3}/i
         $discount_percentage = /"?(discount_percent|discount_rate|percentage)"?\s*[:=]\s*["']?(9[0-9]|100)/i
         $forced_free = /"?(is_free|free_order|zero_payment)"?\s*[:=]\s*["']?true/i
+        $payment_endpoint = /\/(checkout|payment|pay|order|purchase|cart|buy)/i
 
     condition:
-        $discount_field or $discount_percentage or $forced_free
+        $payment_endpoint and ($discount_percentage or $forced_free)
 }
 
 rule payment_data_tampering : abuse {
     meta:
         author      = "laraxaar"
-        description = "Payment request manipulation - currency swap, amount override, bypass attempts"
+        description = "Payment request manipulation — currency swap, amount override, bypass attempts"
         severity    = "critical"
 
     target:
@@ -128,7 +113,8 @@ rule payment_data_tampering : abuse {
         $currency_downgrade = /"?(currency|curr)"?\s*[:=]\s*["']?(usd|eur|gbp).*"?(amount|price)"?\s*[:=]\s*["']?\d{1,3}[^0-9]/i
         $amount_override = /"?(final_amount|charged_amount|pay_amount|billing_amount)"?\s*[:=]\s*["']?\d{1,4}[^0-9]/i
         $quantity_price_mismatch = /"?(quantity|qty)"?\s*[:=]\s*["']?\d{3,}.*"?(price|amount)"?\s*[:=]\s*["']?\d{1,3}[^0-9]/i
+        $payment_endpoint = /\/(checkout|payment|pay|order|purchase|cart|buy)/i
 
     condition:
-        $currency_downgrade or $amount_override or $quantity_price_mismatch
+        $payment_endpoint and ($currency_downgrade or $amount_override or $quantity_price_mismatch)
 }

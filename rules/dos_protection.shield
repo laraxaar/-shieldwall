@@ -1,34 +1,42 @@
-rule slowloris_attack : dos {
+// DoS detection is inherently volumetric — single-request signals are weak
+// indicators at best.  These rules flag structural anomalies that *may*
+// indicate L7 DoS prep; actual flood detection lives in rate-limiter module.
+
+rule oversized_content_length : dos {
     meta:
         author      = "laraxaar"
-        description = "Slowloris-style slow HTTP attack detection"
-        severity    = "high"
+        description = "Content-Length header declares >1GB payload on non-upload method — possible Slowloris or resource exhaustion"
+        severity    = "medium"
 
     target:
         $headers = request.headers
+        $method  = request.method
 
     strings:
-        $slow_header = /Content-Length:\s*\d{9,}/i
-        $incomplete_request = /Transfer-Encoding:\s*chunked/i
+        $huge_cl = /Content-Length:\s*\d{10,}/i
+        $upload_method = /(POST|PUT|PATCH)/i
 
     condition:
-        $slow_header or $incomplete_request
+        $huge_cl and not ($upload_method in $method)
 }
 
 rule http_header_swelling : dos {
     meta:
         author      = "laraxaar"
-        description = "Abnormally long HTTP headers"
-        severity    = "high"
+        description = "Abnormally long HTTP headers — possible header bomb or cookie flooding"
+        severity    = "medium"
 
     target:
         $headers = request.headers
-        $raw_headers = request.raw_headers
 
     strings:
-        $oversized_header = /.{8192,}/
-        $cookie_bomb = /Cookie:\s*.{4096,}/
-        $user_agent_flood = /User-Agent:\s*.{2048,}/
+        // Note: this catches total raw header length, not per-key.
+        // JWTs, SSO tokens, and tracing headers (Datadog, X-Ray) can exceed
+        // 8KB per header. 16KB threshold sits safely above normal auth headers
+        // but still catches application-level header bombs.
+        $oversized_header = /.{16384,}/
+        $cookie_bomb = /Cookie:\s*.{8192,}/
+        $user_agent_flood = /User-Agent:\s*.{4096,}/
 
     condition:
         $oversized_header or $cookie_bomb or $user_agent_flood
@@ -37,8 +45,8 @@ rule http_header_swelling : dos {
 rule endless_parameters : dos {
     meta:
         author      = "laraxaar"
-        description = "Query string with excessive parameters (DoS vector)"
-        severity    = "high"
+        description = "Query string with excessive parameters (HashDoS / parameter pollution)"
+        severity    = "medium"
 
     target:
         $url = request.raw_url
@@ -50,17 +58,4 @@ rule endless_parameters : dos {
 
     condition:
         $param_flood or $deep_nesting
-}
-
-rule connection_flood : dos {
-    meta:
-        author      = "laraxaar"
-        description = "Rapid connection attempts from same source"
-        severity    = "critical"
-
-    target:
-        $rate = request.rate
-
-    condition:
-        $rate
 }

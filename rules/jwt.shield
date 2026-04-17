@@ -12,13 +12,30 @@ rule jwt_algorithm_attack : jwt {
     strings:
         $none_alg = /"alg"\s*:\s*"none"/i
         $empty_sig = /eyJ[^.]+\.eyJ[^.]*\.[A-Za-z0-9_-]{0,2}$/
-        $alg_switch = /"alg"\s*:\s*"(HS256|HS384|HS512)".*"kid"\s*:/i
         $jwk_inject = /"jwk"\s*:\s*\{[^}]*"kty"\s*:/i
+
+    condition:
+        $none_alg or $empty_sig or $jwk_inject
+}
+
+// JKU/X5U can be legitimate in enterprise SSO (Auth0, Keycloak, Cognito).
+// Separated from algorithm attacks with lower severity.
+rule jwt_header_injection : jwt {
+    meta:
+        author      = "laraxaar"
+        description = "JWT header URL injection — jku/x5u pointing to external key source"
+        severity    = "medium"
+
+    target:
+        $headers = request.headers
+        $body = request.body
+
+    strings:
         $jku_redirect = /"jku"\s*:\s*"https?:\/\/[^"]+/i
         $x5u_attack = /"x5u"\s*:\s*"https?:\/\/[^"]+/i
 
     condition:
-        $none_alg or $empty_sig or $jwk_inject or $jku_redirect or $x5u_attack
+        $jku_redirect or $x5u_attack
 }
 
 rule jwt_key_confusion : jwt {

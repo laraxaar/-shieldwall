@@ -10,9 +10,9 @@ rule traversal_attempt : traversal {
         $query = request.query
 
     strings:
-        $dotdot          = /\.\.[\/\\]/
+        $dotdot          = /\.\.[\\/]/
         $sensitive_nix   = /\/(etc\/(passwd|shadow|hosts)|proc\/(self|[0-9]+)\/(environ|cmdline|fd|maps))/i
-        $sensitive_win   = /(boot\.ini|windows[\/\\](system32|win\.ini|repair[\/\\]sam))/i
+        $sensitive_win   = /(boot\.ini|windows[\\/](system32|win\.ini|repair[\\/]sam))/i
         $sensitive_app   = /(\.(env|git\/|svn\/|htpasswd|htaccess|ssh\/))/i
         $rfi_proto       = /(include|require|file|page|path|template)\s*=\s*(https?|ftp|data|php):\/\//i
         $php_wrapper     = /php:\/\/(filter|input|data|expect|zip)/i
@@ -24,48 +24,29 @@ rule traversal_attempt : traversal {
         or $rfi_proto or $php_wrapper or $null_byte
 }
 
-// fires when attacker obfuscates traversal via multi-layer encoding
-rule encoding_evasion : evasion {
+// Merged: encoding_evasion + traversal_encoding_bypass (were 90% overlapping)
+rule traversal_encoding_evasion : evasion {
     meta:
         author      = "laraxaar"
-        description = "Multi-layer encoding evasion (double-encode, overlong UTF-8, unicode)"
-        severity    = "medium"
-
-    target:
-        $url = request.raw_url
-
-    strings:
-        $double_encode   = /%25(2e|2f|5c|3c|3e|27|22)/i
-        $overlong_utf8   = /%c0%ae|%c1%9c|%c0%af/i
-        $unicode_dot     = /%u002e|%u2215|%u2216/i
-        $excessive_slash = /\/{3,}|\\\/{2,}|\\{3,}/
-
-    condition:
-        $double_encode in $url or $overlong_utf8 in $url
-        or $unicode_dot in $url or $excessive_slash in $url
-}
-
-// Detects encoding-based traversal evasion through API layers
-// Catches attacks like: /api/download?file=%252e%252e%252fetc%252fpasswd
-rule traversal_encoding_bypass : evasion {
-    meta:
-        author      = "laraxaar"
-        description = "Traversal via double/triple encoding in API parameters"
+        description = "Multi-layer encoding evasion for traversal — double-encode, overlong UTF-8, unicode tricks"
         severity    = "high"
 
     target:
-        $url    = request.url
-        $query  = request.query
-        $body   = request.body
+        $raw_url = request.raw_url
+        $url     = request.url
+        $query   = request.query
+        $body    = request.body
 
     strings:
-        $double_encoded_dot = /%25(25)*2e/i      // Double/triple encoded dot
-        $double_encoded_slash = /%25(25)*2f/i    // Double/triple encoded slash
-        $encoded_traversal = /%(25)*2e%(25)*2e%(25)*2f/i  // Encoded ../ pattern
-        $api_traversal = /api\/(v\d+\/)?(download|file|path|redirect|proxy|fetch)\?.*%(25)*2e/i
-        $overlong_utf8 = /%c0%ae|%c1%9c|%c0%af|%e0%80%ae/i  // Overlong UTF-8 encoding
+        $double_encode       = /%25(2e|2f|5c|3c|3e|27|22)/i
+        $double_encoded_dot  = /%25(25)*2e/i
+        $double_encoded_slash = /%25(25)*2f/i
+        $overlong_utf8       = /%c0%ae|%c1%9c|%c0%af|%e0%80%ae/i
+        $unicode_dot         = /%u002e|%u2215|%u2216/i
+        $excessive_slash     = /\/{3,}|\\\//{2,}|\\{3,}/
 
     condition:
-        ($double_encoded_dot or $double_encoded_slash or $encoded_traversal or $overlong_utf8)
-        and ($api_traversal in $url or $api_traversal in $body or $api_traversal in $query)
+        $double_encode in $raw_url or $overlong_utf8 in $raw_url
+        or $unicode_dot in $raw_url or $excessive_slash in $raw_url
+        or $double_encoded_dot or $double_encoded_slash
 }

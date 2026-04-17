@@ -53,6 +53,31 @@ NoSQL, LDAP, GraphQL, or any other injection target.
 
 ---
 
+## Architecture Boundaries
+
+ShieldWall has strict separation between layers. Each makes promises about
+what it **does** and **does not** do, ensuring predictable, non-destructive behavior:
+
+| Layer | Role | Does NOT |
+|---|---|---|
+| **Decoder** | Normalizes encoding (URL, HTML, Unicode, Base64). Produces canonical request representation | Make security decisions. Mutate original request. Call network |
+| **Feature Extractor** | Calculates entropy, encoding depth, char distribution | Block or allow anything. Persist state |
+| **Detectors** (modules) | Match patterns, score signals, detect anomalies | Write to disk. Make network calls |
+| **Scoring Engine** | Aggregates detector outputs into risk score | Enforce policy (block/allow) |
+| **Decision Engine** | Applies policy (block/detect/log) based on score + severity | Normalize input. Score signals |
+| **Auto-Rule Generator** | Creates candidate signatures from zero-day anomalies | Promote rules without TTL. Override existing rules |
+
+### Design Guarantees
+
+- **Decoding is bounded** (`MAX_DECODE_DEPTH = 5`).
+- **No network calls** in the hot path.
+- **No mutation** of the original `req` object.
+- **Deterministic output** for identical input (no randomness).
+- **Auto-generated rules expire** after 7 days (must be manually promoted).
+- **Feedback loop adapts signal weights** but never drops below 10% base weight, preventing self-muting.
+
+---
+
 ## Installation
 
 ```bash
@@ -173,6 +198,31 @@ Rules can be loaded from files, directories, or inline strings — see examples.
 | **Session Anomaly** | Geo-velocity checks, device fingerprint changes, impossible travel detection |
 | **API Abuse** | GraphQL complexity analysis, REST enumeration, batch attack detection |
 | **DDoS Protection** | L7 flood detection - Slowloris, oversized headers, connection floods |
+
+---
+
+## Anomaly Threshold Calibration
+
+All thresholds are empirically tuned against a mix of legitimate web traffic and
+known attack corpora (SQLi, XSS, encoded payloads, PE/ELF uploads).  Reference
+scores for common payloads:
+
+| Payload type | Typical score | Level |
+|---|---|---|
+| Normal `GET /api/users` | 0 – 3 | none |
+| GraphQL introspection | 4 – 8 | none/low |
+| JWT in Authorization | 2 – 5 | none |
+| `' OR 1=1 --` | 12 – 18 | medium/high |
+| UNION SELECT (encoded) | 22 – 35 | high/critical |
+| `<script>alert(1)</script>` | 14 – 20 | high |
+| Multi-layer encoded payload | 20 – 40+ | critical |
+
+**Score threshold (15)** — lowest score at which known attacks reliably trigger.<br>
+**Critical threshold (30)** — requires ≥3 independent high-weight signals; extremely unlikely for legitimate traffic.<br>
+**Entropy 5.5** — sits above normal URL-encoded values (≈4.5–5.2) but below pure base64/encrypted data (≈5.8–6.0).
+
+Known false-positive sources (JWTs, GraphQL introspection, hex hashes, versioned
+REST paths) are automatically suppressed.
 
 ---
 

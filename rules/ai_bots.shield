@@ -1,20 +1,42 @@
-rule ai_web_scraper : botnet {
+// Classification signals — not attacks.  These crawlers are legitimate services
+// that respect robots.txt (usually).  Detection is UA-based and trivially
+// bypassable — treat as classification, not security enforcement.
+
+rule ai_crawler_detection : crawler {
     meta:
         author      = "laraxaar"
-        description = "Detects aggressive AI Web Scrapers, LLM crawlers, and content thieves"
-        severity    = "high"
-        category    = "botnet"
+        description = "Identifies known AI crawlers and LLM data collectors"
+        severity    = "low"
+        category    = "classification"
 
     target:
-        $user_agent = request.useragent
+        $ua = request.useragent
 
     strings:
         $openai    = /(GPTBot|ChatGPT-User|OAI-SearchBot)/i
         $anthropic = /(ClaudeBot|Claude-Web)/i
-        $google    = /(Google-Extended|Gemini)/i
-        $misc_ai   = /(CCBot|Omgili|FacebookBot|Diffbot|Bytespider|PerplexityBot|PetalBot|Amazonbot|Cohere-ai)/i
-        $generic   = /(AI-scraper|LLM-crawler|GPT-crawling)/i
+        $google_ai = /(Google-Extended|Gemini)/i
+        $ai_misc   = /(PerplexityBot|Cohere-ai)/i
 
     condition:
-        $openai or $anthropic or $google or $misc_ai or $generic
+        $openai or $anthropic or $google_ai or $ai_misc
+}
+
+rule data_scraper_detection : crawler {
+    meta:
+        author      = "laraxaar"
+        description = "Identifies known data/SEO scrapers and content indexers"
+        severity    = "low"
+        category    = "classification"
+
+    target:
+        $ua = request.useragent
+
+    strings:
+        $data_scrapers = /(CCBot|Diffbot|Bytespider|PetalBot|Amazonbot|Omgili)/i
+        $social_bots   = /(FacebookBot|Twitterbot|LinkedInBot)/i
+        $generic       = /(AI-scraper|LLM-crawler|GPT-crawling)/i
+
+    condition:
+        $data_scrapers or $social_bots or $generic
 }

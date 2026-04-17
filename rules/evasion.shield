@@ -1,7 +1,7 @@
 rule char_obfuscation : evasion {
     meta:
-        author = "ShieldWall"
-        description = "Detects SQL/Code execution payload obfuscation using CHAR/CHR functions concatenated together"
+        author = "laraxaar"
+        description = "SQL/Code payload obfuscation using CHAR/CHR function concatenation"
         severity = "high"
         category = "evasion"
 
@@ -10,7 +10,6 @@ rule char_obfuscation : evasion {
         $body = request.body
 
     strings:
-        // Matches chr(115)||chr(101) or char(115)+char(101)
         $char_concat = /(chr|char)\(\s*\d+\s*\)\s*(\|\||\+|CONCAT)\s*(chr|char)\(\s*\d+\s*\)/i
 
     condition:
@@ -20,9 +19,9 @@ rule char_obfuscation : evasion {
 
 rule hex_obfuscation : evasion {
     meta:
-        author = "ShieldWall"
-        description = "Detects obfuscation via excessive Hex encoding or deep URL encoding"
-        severity = "high"
+        author = "laraxaar"
+        description = "Long hex-encoded strings in injection context — possible obfuscated SQL/code payload"
+        severity = "medium"
         category = "evasion"
 
     target:
@@ -30,12 +29,15 @@ rule hex_obfuscation : evasion {
         $body = request.body
 
     strings:
-        // Matches %252527 (triple url encode) or hex strings 0x73656c65
+        // Triple+ URL encoding — always suspicious
         $deep_url = /(%25){2,}[0-9a-f]{2}/i
-        $hex_sql = /0x[0-9a-f]{10,}/i
+        // Long hex strings (20+ chars) near injection keywords to filter out
+        // hashes, blockchain addresses, and telemetry IDs
+        $hex_sql = /0x[0-9a-f]{20,}/i
+        $injection_context = /(select|union|insert|update|delete|exec|eval|concat)/i
 
     condition:
         $deep_url in $url or 
-        $hex_sql in $url or
-        $hex_sql in $body
+        ($hex_sql in $url and $injection_context in $url) or
+        ($hex_sql in $body and $injection_context in $body)
 }

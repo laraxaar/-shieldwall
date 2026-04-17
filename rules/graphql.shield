@@ -1,31 +1,49 @@
 rule graphql_depth_bomb : graphql {
     meta:
         author      = "laraxaar"
-        description = "GraphQL query depth bombing and nesting attacks"
-        severity    = "high"
+        description = "GraphQL query depth bombing — excessive nesting for resource exhaustion"
+        severity    = "medium"
 
     target:
         $body = request.body
         $query = request.query
 
     strings:
-        $deep_nest = /\{[^\{\}]*\{[^\{\}]*\{[^\{\}]*\{[^\{\}]*\{/ 
-        $introspection = /(__schema|__type|IntrospectionQuery|__typename)/i
+        // 7+ levels of nesting — well above typical auto-generated queries (3-4 levels)
+        $deep_nest = /\{[^\{\}]*\{[^\{\}]*\{[^\{\}]*\{[^\{\}]*\{[^\{\}]*\{[^\{\}]*\{/
         $batch_attack = /query.*\{.*\}.*query.*\{.*\}.*query.*\{/is
         $alias_abuse = /\w+\s*:\s*\w+\s*\(.*\)\s*:\s*\w+\s*\(/i
         $directive_inject = /@(include|skip|defer|specifiedBy)\s*\(\s*if\s*:\s*[^)]*\$\{/i
         $fragment_spread = /\.{3}\s*\w+.*\.{3}\s*\w+.*\.{3}\s*\w+/i
 
     condition:
-        $deep_nest or $introspection in $body or $batch_attack
-        or $alias_abuse or $directive_inject or $fragment_spread
+        $deep_nest or $batch_attack or $alias_abuse or $directive_inject or $fragment_spread
+}
+
+// Separated from depth_bomb — introspection is often intentionally enabled
+rule graphql_introspection : graphql {
+    meta:
+        author      = "laraxaar"
+        description = "GraphQL introspection query — classification signal, often intentionally enabled"
+        severity    = "low"
+        category    = "classification"
+
+    target:
+        $body = request.body
+        $query = request.query
+
+    strings:
+        $introspection = /(__schema|__type|IntrospectionQuery)/i
+
+    condition:
+        $introspection in $body or $introspection in $query
 }
 
 rule graphql_mutation_abuse : graphql {
     meta:
         author      = "laraxaar"
-        description = "Suspicious GraphQL mutations and data exfiltration"
-        severity    = "critical"
+        description = "Suspicious GraphQL bulk mutations and injection attempts"
+        severity    = "high"
 
     target:
         $body = request.body
@@ -33,10 +51,10 @@ rule graphql_mutation_abuse : graphql {
     strings:
         $mass_delete = /mutation\s*\{[^}]*deleteMany/is
         $mass_update = /mutation\s*\{[^}]*updateMany/is
-        $raw_query = /queryRaw|executeRaw|aggregateRaw/i
+        // Removed: $raw_query — legitimate Prisma API
         $sql_inject = /mutation\s*\{[^}]*\$\{[^}]*\}/is
         $field_dupe = /(\w+\s*:\s*[^,]+),\s*\1\s*:/i
 
     condition:
-        $mass_delete or $mass_update or $raw_query or $sql_inject or $field_dupe
+        $mass_delete or $mass_update or $sql_inject or $field_dupe
 }

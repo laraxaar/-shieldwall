@@ -1,5 +1,27 @@
 'use strict';
 
+// ─── Design Guarantees ──────────────────────────────────────────────────────
+//
+// 1. Bounded:  MAX_DECODE_DEPTH = 5 — recursion always terminates
+// 2. Pure:     no network calls, no filesystem access, no side effects
+// 3. Non-destructive: original request object is NEVER mutated;
+//              decodeRequest() returns a new object
+// 4. Deterministic: identical input → identical output, no randomness
+// 5. Security-neutral: decoder makes NO security decisions — it only
+//              produces a canonical representation for downstream analysis
+// 6. Readable output: base64 is only decoded when:
+//    - the blob appears in a parameter-value context (after = or :)
+//    - the blob is ≥40 chars (filters out short tokens/IDs)
+//    - the decoded result is printable ASCII and ≥4 chars
+//
+// What this does NOT do:
+//   - Does NOT validate or sanitize input
+//   - Does NOT block or allow requests
+//   - Does NOT make outbound connections
+//   - Does NOT persist any state between calls
+//
+// ─────────────────────────────────────────────────────────────────────────────
+
 const MAX_DECODE_DEPTH = 5;
 
 function urlDecode(str) {
@@ -35,13 +57,21 @@ function unicodeDecode(str) {
     .replace(/\\0([0-7]{1,3})/g, (_, o) => String.fromCharCode(parseInt(o, 8)));
 }
 
+// Base64 decode — restricted to parameter-value context only.
+// Previous version decoded ANY 20+ char base64 blob anywhere in text,
+// which caused "semantic mutation" of the input stream.  Now:
+//   - blob must follow = or : (parameter value position)
+//   - minimum 40 chars (filters short tokens, API keys, IDs)
+//   - decoded result must be printable ASCII ≥4 chars
 function base64Decode(str) {
   return str.replace(
-    /(?:^|[^a-zA-Z0-9+/])([A-Za-z0-9+/]{20,}={0,2})(?:$|[^a-zA-Z0-9+/=])/g,
+    /(?:[=:]\s*)([A-Za-z0-9+/]{40,}={0,2})(?:$|[&\s;,\]}])/g,
     (match, b64) => {
       try {
         const decoded = Buffer.from(b64, 'base64').toString('utf-8');
-        if (/^[\x20-\x7E\r\n\t]+$/.test(decoded)) return match.replace(b64, decoded);
+        if (/^[\x20-\x7E\r\n\t]+$/.test(decoded) && decoded.length >= 4) {
+          return match.replace(b64, decoded);
+        }
       } catch {}
       return match;
     }
@@ -56,7 +86,8 @@ function normalizePath(str) {
   return str.replace(/\\/g, '/').replace(/\/+/g, '/');
 }
 
-// Recursive decode — applies all decoders until output stabilizes
+// Recursive decode — applies all decoders until output stabilizes.
+// Guaranteed to terminate: depth counter + MAX_DECODE_DEPTH = 5.
 function fullDecode(str, depth = 0) {
   if (!str || typeof str !== 'string' || depth >= MAX_DECODE_DEPTH) return str || '';
 
@@ -71,7 +102,9 @@ function fullDecode(str, depth = 0) {
   return decoded !== str ? fullDecode(decoded, depth + 1) : decoded;
 }
 
-// Builds normalized request copy for rule matching, preserving raw originals for evasion detection
+// Builds normalized request copy for rule matching.
+// IMPORTANT: the original req object is never modified — this returns a new object.
+// Raw originals are preserved for evasion detection (rawUrl, rawBody).
 function decodeRequest(req) {
   const decoded = {
     url: fullDecode(req.url || ''),

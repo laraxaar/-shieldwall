@@ -34,14 +34,50 @@ const DEFAULTS = {
 function buildCSP(d) { return Object.entries(d).map(([k, v]) => `${k} ${Array.isArray(v) ? v.join(' ') : v}`).join('; '); }
 function buildPermissions(f) { return Object.entries(f).map(([k, a]) => a.length ? `${k}=(${a.join(' ')})` : `${k}=()`).join(', '); }
 
-function deepMerge(t, s) {
-  const o = { ...t };
-  for (const k of Object.keys(s)) { o[k] = s[k] && typeof s[k] === 'object' && !Array.isArray(s[k]) ? deepMerge(t[k] || {}, s[k]) : s[k]; }
-  return o;
+// Schema-based config builder to prevent prototype pollution / config injection
+function applyConfig(defaults, user) {
+  if (!user || typeof user !== 'object') return { ...defaults };
+  const conf = { ...defaults };
+  
+  if (user.contentSecurityPolicy) {
+    conf.contentSecurityPolicy = { ...defaults.contentSecurityPolicy, ...user.contentSecurityPolicy };
+    if (user.contentSecurityPolicy.directives) {
+      conf.contentSecurityPolicy.directives = { 
+        ...defaults.contentSecurityPolicy.directives, 
+        ...user.contentSecurityPolicy.directives 
+      };
+      // Sanitize directives keys against known list if strictly needed, or trust defaults + explicit user map.
+    }
+  }
+
+  if (user.hsts) conf.hsts = { ...defaults.hsts, ...user.hsts };
+  if (user.permissionsPolicy) {
+    conf.permissionsPolicy = { ...defaults.permissionsPolicy, ...user.permissionsPolicy };
+    if (user.permissionsPolicy.features) {
+      conf.permissionsPolicy.features = {
+        ...defaults.permissionsPolicy.features,
+        ...user.permissionsPolicy.features
+      };
+    }
+  }
+
+  // Copy primitives
+  const primitives = [
+    'nosniff', 'frameOptions', 'xssProtection', 'referrerPolicy', 
+    'dnsPrefetchControl', 'permittedCrossDomainPolicies', 'downloadOptions',
+    'crossOriginEmbedderPolicy', 'crossOriginOpenerPolicy', 'crossOriginResourcePolicy'
+  ];
+  for (const p of primitives) {
+    if (user[p] !== undefined) conf[p] = user[p];
+  }
+
+  if (Array.isArray(user.removeHeaders)) conf.removeHeaders = user.removeHeaders;
+
+  return conf;
 }
 
 function createMiddleware(userConfig = {}) {
-  const c = deepMerge(DEFAULTS, userConfig);
+  const c = applyConfig(DEFAULTS, userConfig);
   return function securityHeaders(_req, res) {
     if (c.contentSecurityPolicy?.enabled) res.setHeader('Content-Security-Policy', buildCSP(c.contentSecurityPolicy.directives));
     if (c.hsts?.enabled) {

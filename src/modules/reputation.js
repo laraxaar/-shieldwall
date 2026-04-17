@@ -1,5 +1,23 @@
 'use strict';
 
+/**
+ * Reputation Engine (Threat Intel Layer)
+ * 
+ * ARCHITECTURAL CONTEXT (2026 Standard):
+ * Acts as a mini threat-intel system maintaining a sliding window of localized
+ * threat perception. Features TTL, LRU bounds, decay, and severity-weighted scoring.
+ * 
+ * ⚠️ ARCHITECTURAL LIMITATION (IP as Primary Key):
+ * IP address is a structurally weak axis of trust due to NAT, mobile networks, 
+ * CGNAT, and proxies. This engine treats IP reputation as a *signal*, not 
+ * ground truth.
+ * 
+ * FUTURE ROADMAP:
+ * Migrate primary key from `IP` to dynamic `ASN + Behavior Cluster` + `Device Fingerprint`.
+ * The scoring must evolve from additive thresholds to probabilistic decay based on
+ * valid session ratios.
+ */
+
 const LRU = require('lru-cache');
 
 const REPUTATION_TTL = 24 * 60 * 60 * 1000;
@@ -12,6 +30,9 @@ const SEVERITY_SCORES = {
   low: 10,
   info: 1,
 };
+
+const HALF_LIFE_HOURS = 24;
+const LAMBDA = Math.LN2 / HALF_LIFE_HOURS;
 
 const reputationCache = new LRU({
   max: MAX_ENTRIES,
@@ -28,32 +49,63 @@ class ReputationEngine {
     return `rep:${ip}`;
   }
 
+  _calculateCurrentScore(data, now = Date.now()) {
+    if (!data.lastSeen) return data.score;
+    const hoursPassed = (now - data.lastSeen) / (1000 * 60 * 60);
+    // Exponential decay application
+    let currentScore = data.score * Math.exp(-LAMBDA * hoursPassed);
+    
+    // Prevent floating point dust
+    if (currentScore < 1) currentScore = 0;
+    
+    return currentScore;
+  }
+
   recordIncident(ip, category, severity) {
     if (!ip) return;
-
+    const now = Date.now();
     const key = this._getKey(ip);
+    
     const existing = this.cache.get(key) || {
       score: 0,
       incidents: [],
-      firstSeen: Date.now(),
-      lastSeen: Date.now(),
+      firstSeen: now,
+      lastSeen: now,
     };
+
+    // Apply temporal decay to the old score before adding the new penalty
+    existing.score = this._calculateCurrentScore(existing, now);
 
     const points = SEVERITY_SCORES[severity] || 1;
     existing.score = Math.min(existing.score + points, 1000);
-    existing.lastSeen = Date.now();
+    existing.lastSeen = now;
 
     existing.incidents.push({
       category,
       severity,
-      timestamp: Date.now(),
+      timestamp: now,
     });
 
-    if (existing.incidents.length > 50) {
-      existing.incidents.shift();
-    }
+    if (existing.incidents.length > 50) existing.incidents.shift();
 
     this.cache.set(key, existing);
+  }
+
+  recordTrust(ip, category, trustValue = 10) {
+    if (!ip) return;
+    const now = Date.now();
+    const key = this._getKey(ip);
+    
+    const data = this.cache.get(key);
+    if (!data) return; // We only reduce risk for users that actually have a risk profile.
+
+    data.score = this._calculateCurrentScore(data, now);
+    
+    // Subtract trust value, floored at 0
+    data.score = Math.max(0, data.score - trustValue);
+    data.lastSeen = now;
+
+    this.cache.set(key, data);
   }
 
   getReputation(ip) {
@@ -66,10 +118,12 @@ class ReputationEngine {
       return { score: 0, trust: 'unknown', incidents: [] };
     }
 
-    const trustLevel = this._calculateTrust(data.score);
+    // Dynamic just-in-time calculation
+    const currentScore = this._calculateCurrentScore(data);
+    const trustLevel = this._calculateTrust(currentScore);
 
     return {
-      score: data.score,
+      score: +currentScore.toFixed(2),
       trust: trustLevel,
       firstSeen: data.firstSeen,
       lastSeen: data.lastSeen,
@@ -104,32 +158,18 @@ class ReputationEngine {
   getAllBlockedIPs() {
     const blocked = [];
     for (const [key, value] of this.cache.entries()) {
-      if (this._calculateTrust(value.score) === 'blocked') {
+      const dynamicScore = this._calculateCurrentScore(value);
+      if (this._calculateTrust(dynamicScore) === 'blocked') {
         blocked.push({
           ip: key.replace('rep:', ''),
-          score: value.score,
+          score: +dynamicScore.toFixed(2),
           incidents: value.incidents.length,
         });
       }
     }
     return blocked;
   }
-
-  decayReputation(ip, factor = 0.9) {
-    if (!ip) return;
-
-    const key = this._getKey(ip);
-    const data = this.cache.get(key);
-    if (!data) return;
-
-    data.score = Math.floor(data.score * factor);
-    if (data.score < 5) {
-      this.cache.delete(key);
-    } else {
-      this.cache.set(key, data);
-    }
-  }
-}
+} // Remove decayReputation() entirely
 
 const engine = new ReputationEngine();
 
@@ -146,7 +186,7 @@ function check(decodedReq) {
       severity: 'critical',
       category: 'reputation',
       description: `IP ${ip} has critical reputation score (${rep.score}) - previous incidents: ${rep.incidentCount}`,
-      author: 'laraxaar',
+      author: 'shieldwall-core',
       sourceFile: 'builtin:reputation',
       analysis: {
         reputationScore: rep.score,
@@ -167,7 +207,7 @@ function check(decodedReq) {
       severity: 'high',
       category: 'reputation',
       description: `IP ${ip} has suspicious reputation (${rep.score}) - strict checks enforced`,
-      author: 'laraxaar',
+      author: 'shieldwall-core',
       sourceFile: 'builtin:reputation',
       analysis: {
         reputationScore: rep.score,
@@ -184,8 +224,12 @@ function record(ip, category, severity) {
   engine.recordIncident(ip, category, severity);
 }
 
+function recordTrust(ip, category, trustValue) {
+  engine.recordTrust(ip, category, trustValue);
+}
+
 function getReputation(ip) {
   return engine.getReputation(ip);
 }
 
-module.exports = { check, record, getReputation, ReputationEngine };
+module.exports = { check, record, recordTrust, getReputation, ReputationEngine };

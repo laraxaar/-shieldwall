@@ -1,19 +1,28 @@
 'use strict';
 
-// Bot detection module — identifies automated traffic via behavioral signals
-// Detects headless browsers, automation tools, and scrapers
+/**
+ * @file bot-detection.js
+ * @description Behavioral Bot & Automation Detection Engine.
+ * 
+ * ROLE IN ARCHITECTURE:
+ * Extrapolates automated traffic (Scrapers, Headless Browsers, CLI tools) from legitimate 
+ * browser traffic based on User-Agent patterns and behavioral telemetry (request rates, intervals).
+ * 
+ * DATA FLOW:
+ * [engine.js] passes `decodedReq` -> `check()` evaluates headers and session state ->
+ * Yields threat indicators mapped as 'bot' patterns back to the central Risk Aggregator.
+ * 
+ * CRITICAL FALSE POSITIVE (FP) MITIGATION & BUG FIXES:
+ * - Session State Eviction: Previously wiped active sessions > 1 hr. Now properly
+ *   clears only inactive sessions based on `lastSeen`, resolving a massive memory logic bug.
+ * - API Client FP: Automation signatures (curl, Postman) frequently trigger False Positives
+ *   on legitimate API endpoints. `check()` now dampens severity if operating in API context.
+ */
 
 const HEADLESS_INDICATORS = [
-  /HeadlessChrome/i,
-  /PhantomJS/i,
-  /Selenium/i,
-  /WebDriver/i,
-  /Puppeteer/i,
-  /Playwright/i,
-  /Cypress/i,
-  /webdriver/i,
-  /selenium/i,
-  /phantomjs/i,
+  /HeadlessChrome/i, /PhantomJS/i, /Selenium/i, /WebDriver/i,
+  /Puppeteer/i, /Playwright/i, /Cypress/i, /webdriver/i, 
+  /selenium/i, /phantomjs/i,
 ];
 
 const AUTOMATION_UAS = [
@@ -23,16 +32,16 @@ const AUTOMATION_UAS = [
   /postman/i, /insomnia/i,
 ];
 
-const SUSPICIOUS_HEADERS = [
-  /sec-ch-ua.*headless/i,
-  /chrome-lighthouse/i,
-];
+const SESSION_DATA = new Map();
+const MAX_SESSIONS = 5000; 
+const MAX_REQUESTS_PER_SESSION = 100;
 
-// Track per-session behavior
-const sessionData = new Map();
-const MAX_SESSIONS = 5000; // Prevent memory exhaustion
-const MAX_REQUESTS_PER_SESSION = 100; // Limit history per session
-
+/**
+ * Evaluates HTTP Context for strict Headless Browser indicators.
+ * @param {string} userAgent - Raw HTTP User-Agent.
+ * @param {Object} headers - Dictionary of HTTP headers.
+ * @returns {Array<string>} List of violation string identifiers.
+ */
 function detectHeadlessBrowser(userAgent, headers) {
   const indicators = [];
   
@@ -42,13 +51,11 @@ function detectHeadlessBrowser(userAgent, headers) {
     }
   }
   
- 
   const acceptLang = headers['accept-language'];
   if (!acceptLang || acceptLang.length < 2) {
     indicators.push('missing_accept_language');
   }
   
- 
   const secChUa = headers['sec-ch-ua'];
   if (secChUa && /headless/i.test(secChUa)) {
     indicators.push('sec_ch_ua_headless');
@@ -57,54 +64,59 @@ function detectHeadlessBrowser(userAgent, headers) {
   return indicators;
 }
 
+/**
+ * Detects standard programmatic tooling traversing the site.
+ * @param {string} userAgent - Raw HTTP User-Agent.
+ * @returns {Array<string>} Detected automation IDs.
+ */
 function detectAutomationTool(userAgent) {
   const indicators = [];
-  
   for (const pattern of AUTOMATION_UAS) {
     if (pattern.test(userAgent)) {
       indicators.push(`automation_ua:${pattern.source}`);
     }
   }
-  
   return indicators;
 }
 
+/**
+ * Computes temporal behaviors across the session (e.g. rate spiking, sequential scanning).
+ * @param {string} sessionId - Distinct grouping identifier.
+ * @param {Object} requestData - Metadata of the current tick.
+ * @returns {Array<string>} Behavioral violation identifiers.
+ */
 function analyzeBehavior(sessionId, requestData) {
   if (!sessionId) return [];
   
   const now = Date.now();
-  let data = sessionData.get(sessionId);
+  let data = SESSION_DATA.get(sessionId);
   
   if (!data) {
-    // Evict oldest session if at capacity (DDoS protection)
-    if (sessionData.size >= MAX_SESSIONS) {
-      const oldest = sessionData.keys().next().value;
-      sessionData.delete(oldest);
+    // DDoS Protection: Bounded LRU-style eviction if max memory state breached
+    if (SESSION_DATA.size >= MAX_SESSIONS) {
+      const oldest = SESSION_DATA.keys().next().value;
+      SESSION_DATA.delete(oldest);
     }
     data = {
       firstSeen: now,
+      lastSeen: now, // Critical fix for session eviction logic
       requests: [],
-      mouseMovements: [],
-      keystrokes: [],
-      isBot: false, // Set to true if honeypot triggered
+      isBot: false,
     };
-    sessionData.set(sessionId, data);
+    SESSION_DATA.set(sessionId, data);
   }
 
-  // Check if honeypot already flagged this session
+  // Update temporal footprint
+  data.lastSeen = now;
+
+  // External honeypot state mapping
   if (data.isBot) {
     return ['honeypot_flagged'];
   }
   
-
-  if (now - data.firstSeen > 3600000) {
-    sessionData.delete(sessionId);
-    return [];
-  }
-  
-  // Limit requests array to prevent memory bloat
+  // LRU array shift to prevent Request array bloat per-session
   if (data.requests.length >= MAX_REQUESTS_PER_SESSION) {
-    data.requests.shift(); // Remove oldest
+    data.requests.shift();
   }
   data.requests.push({
     timestamp: now,
@@ -114,32 +126,32 @@ function analyzeBehavior(sessionId, requestData) {
   
   const indicators = [];
   
-
+  // Sequential Speed Scanning check
   const recentRequests = data.requests.filter(r => now - r.timestamp < 10000);
   if (recentRequests.length > 50) {
     indicators.push('excessive_request_rate');
   }
-  
   
   if (data.requests.length >= 5) {
     const last5 = data.requests.slice(-5);
     const paths = last5.map(r => r.path);
     const uniquePaths = new Set(paths);
     
-    
+    // Identical exact repetition over small intervals
     if (uniquePaths.size === paths.length && (now - last5[0].timestamp) < 5000) {
       indicators.push('sequential_path_access');
     }
   }
   
- 
-  if (requestData.isBrowser && data.mouseMovements.length === 0 && data.requests.length > 5) {
-    indicators.push('no_interaction');
-  }
-  
   return indicators;
 }
 
+/**
+ * Main evaluation loop merging static UA checks and behavioral Session analytics.
+ * Emits signals back to the Risk Aggregator in engine.js.
+ * @param {Object} decodedReq - Unpacked Request Map via decoder.
+ * @returns {Array} Risk match instances for Engine evaluation.
+ */
 function check(decodedReq) {
   const matches = [];
   const indicators = [];
@@ -148,22 +160,17 @@ function check(decodedReq) {
   const headers = decodedReq.headers || {};
   
   const headlessIndicators = detectHeadlessBrowser(ua, headers);
-  if (headlessIndicators.length > 0) {
-    indicators.push(...headlessIndicators);
-  }
+  if (headlessIndicators.length > 0) indicators.push(...headlessIndicators);
   
   const automationIndicators = detectAutomationTool(ua);
-  if (automationIndicators.length > 0) {
-    indicators.push(...automationIndicators);
-  }
+  if (automationIndicators.length > 0) indicators.push(...automationIndicators);
   
-  // Prefer sessionId over IP to handle NAT/shared IPs properly
   const sessionId = decodedReq.sessionId || decodedReq.ip;
   const isBrowser = /Chrome|Firefox|Safari|Edge/i.test(ua);
 
-  // Check for honeypot trap trigger from other modules
+  // Propagate Honeypot execution faults across the session boundary
   if (decodedReq.honeypotTriggered) {
-    const data = sessionData.get(sessionId);
+    const data = SESSION_DATA.get(sessionId);
     if (data) data.isBot = true;
   }
 
@@ -175,14 +182,23 @@ function check(decodedReq) {
   indicators.push(...behaviorIndicators);
   
   if (indicators.length > 0) {
-    const severity = indicators.some(i => i.includes('automation')) ? 'high' : 'medium';
+    // DP/FP Mitigation: Decrease severity if the endpoint is an explicit 'API',
+    // recognizing that legitimate programmatic access triggers automation UA heuristics.
+    const isApiContext = /^\/api\//i.test(decodedReq.path || '');
+    let severity = indicators.some(i => i.includes('automation') || i.includes('headless')) 
+                   ? 'high' : 'medium';
+    
+    if (isApiContext && indicators.every(i => i.includes('automation'))) {
+       severity = 'medium'; // Downgrade "cURL / Postman" checks if it's on an API.
+    }
+
     matches.push({
       rule: 'bot_detection',
       tags: ['bot', 'automation'],
       severity,
       category: 'bot',
       description: `Bot detected: ${indicators.slice(0, 3).join(', ')}`,
-      author: 'laraxaar',
+      author: 'shieldwall-core', // Updated authorship
       sourceFile: 'builtin:bot-detection',
       matchedPatterns: indicators.map(i => ({ name: i, matched: true })),
     });
@@ -191,12 +207,16 @@ function check(decodedReq) {
   return matches;
 }
 
-
+/**
+ * Evict idle sessions periodically to prevent RAM ballooning (DDoS).
+ * Crucial Fix: Eviction relies on `lastSeen` rather than total session age.
+ */
 setInterval(() => {
   const now = Date.now();
-  for (const [id, data] of sessionData.entries()) {
-    if (now - data.firstSeen > 3600000) {
-      sessionData.delete(id);
+  for (const [id, data] of SESSION_DATA.entries()) {
+    // 30 minute inactivity timeout
+    if (now - data.lastSeen > 1800000) {
+      SESSION_DATA.delete(id);
     }
   }
 }, 60000);

@@ -1,12 +1,18 @@
+// Classification signal only — trivially bypassed via UA spoofing.
+// Catches automated scanners that don't bother changing their fingerprint.
+// Real attackers with obfuscation will not be caught by this rule.
+
 rule known_scanner : scanner {
     meta:
         author      = "laraxaar"
-        description = "Known offensive security tool fingerprints"
-        severity    = "high"
+        description = "Known offensive security tool fingerprints in User-Agent or OOB callback domains"
+        severity    = "medium"
 
     target:
         $ua      = request.useragent
         $headers = request.headers
+        $url     = request.url
+        $body    = request.body
 
     strings:
         $tool_ua  = /\b(sqlmap|nikto|nuclei|gobuster|feroxbuster|dirbuster|dirb|wfuzz|ffuf|masscan|zgrab|nmap|burp|arachni|w3af|acunetix|nessus|openvas|zap|whatweb)\b/i
